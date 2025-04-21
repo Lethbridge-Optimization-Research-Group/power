@@ -7,18 +7,30 @@ using CSV, DataFrames
 
 include("probabilistic-OPF.jl")
 
+function extract_case_name(file_path::String)
+    # Extract the filename from the path
+    filename = basename(file_path)
+    # Remove the file extension
+    case_name = replace(filename, r"\.m$" => "")
+    return case_name
+end
+
 function run_parameter_sweep(
     file_path::String, 
     param_name::String,
     param_values::Vector,
     fixed_params::Dict,
-    output_dir::String="./probabilistic-results"
+    base_output_dir::String="./probabilistic-results"
 )
-    # Create output directory if it doesn't exist
+    # Extract case name from file path
+    case_name = extract_case_name(file_path)
+    
+    # Create structured output directory
+    output_dir = joinpath(base_output_dir, case_name, param_name)
     mkpath(output_dir)
     
     # Create CSV file for results
-    csv_path = joinpath(output_dir, "$(param_name)_results.csv")
+    csv_path = joinpath(output_dir, "results.csv")
     
     # Get generator bus numbers from the data
     data = PowerModels.parse_file(file_path)
@@ -35,7 +47,7 @@ function run_parameter_sweep(
         gen_idx_to_bus[idx] = gen["gen_bus"]
     end
     
-    println("Generator map: $gen_idx_to_bus")
+    println("Generator map for $case_name: $gen_idx_to_bus")
     
     # Prepare results dataframe
     results = DataFrame()
@@ -50,7 +62,7 @@ function run_parameter_sweep(
     
     # Run the parameter sweep
     for (i, param_value) in enumerate(param_values)
-        println("Testing $param_name = $param_value")
+        println("Testing $case_name: $param_name = $param_value")
         
         # Set up parameters
         epsilon = fixed_params[:epsilon]
@@ -105,44 +117,56 @@ function run_parameter_sweep(
                 results[i, :status] = string(status)
             end
         catch e
-            println("Error with $param_name = $param_value: $e")
+            println("Error with $case_name: $param_name = $param_value: $e")
             results[i, :status] = "error"
         end
     end
     
     # Save results to CSV
     CSV.write(csv_path, results)
-    println("$param_name tests complete. Results saved to $csv_path")
+    println("$case_name $param_name tests complete. Results saved to $csv_path")
     
     return results
 end
 
-function run_all_parameter_sweeps(file_path::String, output_dir::String="./probabilistic-results")
+function run_all_parameter_sweeps(case_files::Vector{String}, output_dir::String="./probabilistic-results")
     # Define base parameters
     base_params = Dict(
-        :epsilon => 1.0,
-        :confidence_level => 0.95,
+        :epsilon => 6.0,
+        :confidence_level => 0.90,
         :variation_type => :relative,
         :variation_value => 0.15
     )
     
-    # Run epsilon sweep
-    epsilon_values = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 2.0, 5.0, 10.0]
-    run_parameter_sweep(file_path, "epsilon", epsilon_values, base_params, output_dir)
+    for file_path in case_files
+        case_name = extract_case_name(file_path)
+        println("Running parameter sweeps for $case_name...")
+        
+        # Run epsilon sweep
+        # epsilon_values = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 2.0, 5.0, 10.0]
+        epsilon_values = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 
+        1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 3.0, 
+        3.5, 4.0, 4.5, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+        run_parameter_sweep(file_path, "epsilon", epsilon_values, base_params, output_dir)
+        
+        # Run confidence level sweep
+        # confidence_levels = [0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 0.975, 0.99]
+        confidence_levels = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.975, 0.99]
+        run_parameter_sweep(file_path, "confidence_level", confidence_levels, base_params, output_dir)
+        
+        # Run variation value sweep
+        # variation_values = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5]
+        variation_values = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95]
+        run_parameter_sweep(file_path, "variation_value", variation_values, base_params, output_dir)
+        
+        println("All parameter sweeps complete for $case_name.")
+    end
     
-    # Run confidence level sweep
-    confidence_levels = [0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 0.975, 0.99]
-    run_parameter_sweep(file_path, "confidence_level", confidence_levels, base_params, output_dir)
-    
-    # Run variation value sweep
-    variation_values = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5]
-    run_parameter_sweep(file_path, "variation_value", variation_values, base_params, output_dir)
-    
-    println("All parameter sweeps complete. Results saved to $output_dir")
+    println("All cases and parameter sweeps complete. Results saved to $output_dir")
 end
 
-# Example to run a single parameter sweep
-function run_epsilon_sweep(file_path::String, output_dir::String="./probabilistic-results")
+# Example to run a single parameter sweep for multiple cases
+function run_epsilon_sweep(case_files::Vector{String}, output_dir::String="./probabilistic-results")
     base_params = Dict(
         :epsilon => 1.0,  # Will be overridden
         :confidence_level => 0.95,
@@ -150,11 +174,15 @@ function run_epsilon_sweep(file_path::String, output_dir::String="./probabilisti
         :variation_value => 0.15
     )
     
-    epsilon_values = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
-    run_parameter_sweep(file_path, "epsilon", epsilon_values, base_params, output_dir)
+    for file_path in case_files
+        epsilon_values = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 
+                         1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 3.0, 
+                         3.5, 4.0, 4.5, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+        run_parameter_sweep(file_path, "epsilon", epsilon_values, base_params, output_dir)
+    end
 end
 
-function run_confidence_sweep(file_path::String, output_dir::String="./probabilistic-results")
+function run_confidence_sweep(case_files::Vector{String}, output_dir::String="./probabilistic-results")
     base_params = Dict(
         :epsilon => 1.0,
         :confidence_level => 0.95,  # Will be overridden
@@ -162,11 +190,13 @@ function run_confidence_sweep(file_path::String, output_dir::String="./probabili
         :variation_value => 0.15
     )
     
-    confidence_levels = [0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 0.975, 0.99]
-    run_parameter_sweep(file_path, "confidence_level", confidence_levels, base_params, output_dir)
+    for file_path in case_files
+        confidence_levels = [0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 0.975, 0.99]
+        run_parameter_sweep(file_path, "confidence_level", confidence_levels, base_params, output_dir)
+    end
 end
 
-function run_variation_sweep(file_path::String, output_dir::String="./probabilistic-results")
+function run_variation_sweep(case_files::Vector{String}, output_dir::String="./probabilistic-results")
     base_params = Dict(
         :epsilon => 1.0,
         :confidence_level => 0.95,
@@ -174,14 +204,28 @@ function run_variation_sweep(file_path::String, output_dir::String="./probabilis
         :variation_value => 0.15  # Will be overridden
     )
     
-    variation_values = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5]
-    run_parameter_sweep(file_path, "variation_value", variation_values, base_params, output_dir)
+    for file_path in case_files
+        variation_values = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5]
+        run_parameter_sweep(file_path, "variation_value", variation_values, base_params, output_dir)
+    end
 end
 
-# Run all parameter sweeps
-# run_all_parameter_sweeps("././Cases/case14.m")
+# Example usage with multiple case files
+case_files = [
+    "././Cases/case14.m",
+    "././Cases/case300.m",
+    "././Cases/case3.m",
+    "././Cases/case5.m",
+    "././Cases/case9.m",
+    "././Cases/case118.m",
+    "././Cases/case30.m",
+    "././Cases/case18.m",
+]
 
-# Or run individual sweeps
-run_epsilon_sweep("././Cases/case14.m")
-# run_confidence_sweep("././Cases/case14.m")
-# run_variation_sweep("././Cases/case14.m")
+# Run all parameter sweeps for all cases
+run_all_parameter_sweeps(case_files)
+
+# Or run individual sweeps for all cases
+# run_epsilon_sweep(case_files)
+# run_confidence_sweep(case_files)
+# run_variation_sweep(case_files)

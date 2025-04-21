@@ -2,18 +2,39 @@ using CSV, DataFrames
 using PlotlyJS
 using MPOPF
 
-function plot_parameter_results(csv_path::String, output_dir::String="./probabilistic-plots")
+function plot_case_sweep_results(
+    case_name::String,
+    sweep_name::String,
+    results_dir::String="./probabilistic-results",
+    plots_dir::String="./probabilistic-plots"
+)
+    # Construct the input and output paths
+    input_dir = joinpath(results_dir, case_name, sweep_name)
+    input_file = joinpath(input_dir, "results.csv")
+    output_dir = joinpath(plots_dir, case_name, sweep_name)
+    
+    # Check if the results file exists
+    if !isfile(input_file)
+        println("Results file not found: $input_file")
+        return false
+    end
+    
     # Create output directory if it doesn't exist
     mkpath(output_dir)
     
     # Read the CSV file
-    results = CSV.read(csv_path, DataFrame)
+    results = CSV.read(input_file, DataFrame)
     
-    # Get parameter name from the filename (e.g., "epsilon_results.csv" -> "epsilon")
-    param_name = String(split(basename(csv_path), "_")[1])
+    # Get parameter name from the results (should be the first column)
+    param_name = names(results)[1]
     
     # Filter out rows with infeasible or error status for plotting
     feasible_results = filter(row -> row.status == "feasible", results)
+    
+    if nrow(feasible_results) == 0
+        println("No feasible results found in $input_file")
+        return false
+    end
     
     # Get generator bus columns (columns that start with "pg_bus_")
     pg_cols = filter(col -> startswith(string(col), "pg_bus_"), names(results))
@@ -21,21 +42,18 @@ function plot_parameter_results(csv_path::String, output_dir::String="./probabil
     # Extract bus numbers from column names
     bus_numbers = [parse(Int, replace(string(col), "pg_bus_" => "")) for col in pg_cols]
     
-    # 1. Plot generator outputs vs parameter
+    # Plot all three types of graphs
     plot_generator_outputs(feasible_results, param_name, pg_cols, bus_numbers, output_dir)
-    
-    # 2. Plot objective function vs parameter
     plot_objective_function(feasible_results, param_name, output_dir)
-    
-    # 3. Plot total generation vs parameter
     plot_total_generation(feasible_results, param_name, pg_cols, bus_numbers, output_dir)
     
-    println("Plots saved to $output_dir")
+    println("Plots for $case_name $sweep_name saved to $output_dir")
+    return true
 end
 
 function plot_generator_outputs(results::DataFrame, param_name::String, pg_cols, bus_numbers, output_dir::String)
-    # Create graph for generator outputs
-    graph_location = joinpath(output_dir, "$(param_name)_generator_outputs.html")
+    # Create graph for generator outputs with standardized filename
+    graph_location = joinpath(output_dir, "generator_outputs.html")
     gen_graph = Graph(graph_location)
     
     # Get x values
@@ -59,8 +77,8 @@ function plot_generator_outputs(results::DataFrame, param_name::String, pg_cols,
 end
 
 function plot_objective_function(results::DataFrame, param_name::String, output_dir::String)
-    # Create graph for objective function
-    graph_location = joinpath(output_dir, "$(param_name)_objective.html")
+    # Create graph for objective function with standardized filename
+    graph_location = joinpath(output_dir, "objective_function.html")
     obj_graph = Graph(graph_location)
     
     # Get x values and y values
@@ -81,8 +99,8 @@ function plot_objective_function(results::DataFrame, param_name::String, output_
 end
 
 function plot_total_generation(results::DataFrame, param_name::String, pg_cols, bus_numbers, output_dir::String)
-    # Create graph for total generation
-    graph_location = joinpath(output_dir, "$(param_name)_total_generation.html")
+    # Create graph for total generation with standardized filename
+    graph_location = joinpath(output_dir, "total_generation.html")
     total_graph = Graph(graph_location)
     
     # Get x values
@@ -97,18 +115,7 @@ function plot_total_generation(results::DataFrame, param_name::String, pg_cols, 
     # Add a scatter plot for total generation
     add_scatter(total_graph, x_values, total_gen, "Total Generation", 1)
     
-    # Create individual generation stacked plot
-    stacked_graph_location = joinpath(output_dir, "$(param_name)_stacked_generation.html")
-    stacked_graph = Graph(stacked_graph_location)
-    
-    # Add a scatter plot for each generator
-    for (i, col) in enumerate(pg_cols)
-        bus = bus_numbers[i]
-        y_values = results[:, col]
-        add_scatter(stacked_graph, x_values, y_values, "Generator at Bus $bus", i)
-    end
-    
-    # Create and save the plots
+    # Create and save the plot
     create_plot(
         total_graph, 
         "Total Generation vs $param_name", 
@@ -116,29 +123,53 @@ function plot_total_generation(results::DataFrame, param_name::String, pg_cols, 
         "Total Generation (p.u.)"
     )
     save_graph(total_graph)
-    
-    create_plot(
-        stacked_graph, 
-        "Generator Outputs vs $param_name", 
-        uppercase(param_name), 
-        "Generator Output (p.u.)"
-    )
-    save_graph(stacked_graph)
 end
 
-function plot_all_parameter_results(results_dir::String="./probabilistic-results", output_dir::String="./probabilistic-plots")
-    # Find all CSV files in the results directory
-    csv_files = filter(f -> endswith(f, ".csv"), readdir(results_dir, join=true))
-    
-    # Plot each CSV file
-    for csv_file in csv_files
-        plot_parameter_results(csv_file, output_dir)
+function plot_all_results(
+    results_dir::String="./probabilistic-results",
+    plots_dir::String="./probabilistic-plots"
+)
+    # Check if the results directory exists
+    if !isdir(results_dir)
+        println("Results directory not found: $results_dir")
+        return
     end
+    
+    # Get all case directories in the results directory
+    case_dirs = filter(x -> isdir(joinpath(results_dir, x)), readdir(results_dir))
+    
+    # Define the sweep names we expect to find
+    sweep_names = ["epsilon", "confidence_level", "variation_value"]
+    
+    # Track which plots were successfully created
+    successful_plots = 0
+    total_possible_plots = 0
+    
+    # Process each case and sweep
+    for case_name in case_dirs
+        case_path = joinpath(results_dir, case_name)
+        
+        # Get all sweep directories for this case
+        sweep_dirs = filter(x -> isdir(joinpath(case_path, x)), readdir(case_path))
+        
+        for sweep_name in sweep_dirs
+            total_possible_plots += 1
+            println("Processing plots for $case_name/$sweep_name...")
+            
+            # Plot results for this case and sweep
+            if plot_case_sweep_results(case_name, sweep_name, results_dir, plots_dir)
+                successful_plots += 1
+            end
+        end
+    end
+    
+    println("Created $successful_plots/$total_possible_plots plots successfully.")
+    println("All plots saved to $plots_dir")
 end
 
 # Example usage:
-# Plot results for epsilon sweep
-plot_parameter_results("./probabilistic-results/epsilon_results.csv")
+# Plot results for a specific case and sweep
+# plot_case_sweep_results("case14", "epsilon")
 
-# Plot results for all parameter sweeps
-# plot_all_parameter_results()
+# Plot all results
+plot_all_results()
