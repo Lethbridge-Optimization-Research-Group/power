@@ -113,7 +113,7 @@ function create_plot(graph, title, x_label, y_label, Legend = (0.01, 0.98))
             font = attr(family = "Computer Modern", size = 20),
             x = 0.5,  # Center the title
             xanchor = "center",
-            y = 0.875,  # Move the title down (closer to the plot)
+            # y = 0.875,  # Move the title down (closer to the plot)
             yanchor = "top"
         ),
         xaxis = attr(
@@ -147,8 +147,9 @@ function create_plot(graph, title, x_label, y_label, Legend = (0.01, 0.98))
         ),
         plot_bgcolor = "white",
         paper_bgcolor = "white",
-        width = 800,
-        height = 600,
+        # width = 800,
+        # height = 600,
+        autosize = true,
         margin = attr(l = 80, r = 50, t = 100, b = 80),
         shapes = [
             attr(
