@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Probabilistic Plots Showcase</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #e0e0e0;
+            background-color: #121212;
+        }
+        
+        .container {
+            max-width: 1600px; /* Increased max-width to allow more space */
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            background-color: #1e272e;
+            color: #ffffff;
+            padding: 1.5rem;
+            text-align: center;
+            margin-bottom: 2rem;
+            border-radius: 5px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+        }
+        
+        h1 {
+            font-size: 2.2rem;
+            font-weight: 500;
+        }
+        
+        .navigation-container {
+            margin-bottom: 2rem;
+            background-color: #1e1e1e;
+            padding: 1.5rem;
+            border-radius: 5px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+        }
+        
+        .nav-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 15px;
+            align-items: center;
+        }
+        
+        .nav-label {
+            font-weight: 500;
+            color: #4eccff;
+            font-size: 1.1rem;
+        }
+        
+        .nav-dropdown {
+            flex: 1;
+            min-width: 200px;
+            padding: 12px 16px;
+            font-size: 1rem;
+            background-color: #2d2d2d;
+            color: #ffffff;
+            border: 1px solid #3a3a3a;
+            border-radius: 4px;
+            appearance: none;
+            cursor: pointer;
+        }
+        
+        .nav-dropdown:focus {
+            outline: none;
+            border-color: #4eccff;
+            box-shadow: 0 0 0 2px rgba(78, 204, 255, 0.25);
+        }
+        
+        .experiment-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-top: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .experiment-tab {
+            padding: 10px 20px;
+            background-color: #2d2d2d;
+            color: #e0e0e0;
+            border: 1px solid #3a3a3a;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .experiment-tab:hover {
+            background-color: #3a3a3a;
+        }
+        
+        .experiment-tab.active {
+            background-color: #2c5282;
+            color: white;
+            border-color: #4eccff;
+        }
+        
+        .path-display {
+            background-color: #2d2d2d;
+            padding: 10px 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-family: monospace;
+            word-break: break-all;
+        }
+        
+        .path-display span {
+            color: #4eccff;
+        }
+        
+        .controls-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .layout-toggle {
+            display: flex;
+            align-items: center;
+            background-color: #2d2d2d;
+            border-radius: 4px;
+            overflow: hidden;
+            padding: 2px;
+        }
+        
+        .layout-btn {
+            padding: 8px 16px;
+            background: none;
+            border: none;
+            color: #e0e0e0;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .layout-btn.active {
+            background-color: #2c5282;
+            color: white;
+            border-radius: 4px;
+        }
+        
+        /* Horizontal layout (default) */
+        .graphs-container.horizontal {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+        
+        @media (min-width: 1200px) {
+            .graphs-container.horizontal {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+        
+        @media (min-width: 768px) and (max-width: 1199px) {
+            .graphs-container.horizontal {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        
+        /* Vertical layout */
+        .graphs-container.vertical {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+        }
+        
+        .graph-box {
+            background-color: #1e1e1e;
+            border-radius: 5px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+            border: 1px solid #333;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .graph-box h3 {
+            padding: 1rem;
+            background-color: #2d2d2d;
+            border-bottom: 1px solid #333;
+            color: #4eccff;
+            font-weight: 500;
+        }
+        
+        /* Adjust iframe sizing based on layout */
+        .horizontal .graph-frame {
+            width: 100%;
+            height: 450px; /* Increased height */
+            border: none;
+            background-color: #fff;
+        }
+        
+        .vertical .graph-frame {
+            width: 100%;
+            height: 600px; /* Original height */
+            border: none;
+            background-color: #fff;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: #888;
+        }
+        
+        .graph-controls {
+            padding: 12px;
+            text-align: center;
+            background-color: #2d2d2d;
+            border-top: 1px solid #333;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+        
+        .control-btn {
+            padding: 8px 16px;
+            background-color: #2c5282;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            font-size: 0.9rem;
+        }
+        
+        .control-btn:hover {
+            background-color: #3a6ea5;
+        }
+        
+        .fullscreen-mode {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1000;
+            background-color: #121212;
+            overflow: auto;
+            padding: 20px;
+        }
+        
+        .close-fullscreen {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background-color: #c53030;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        
+        .fullscreen-mode h2 {
+            color: #4eccff;
+            margin-bottom: 20px;
+            padding-right: 60px; /* Make room for close button */
+        }
+        
+        .fullscreen-iframe {
+            width: 100%;
+            height: calc(100% - 80px);
+            border: none;
+        }
+        
+        footer {
+            margin-top: 3rem;
+            text-align: center;
+            padding: 1rem;
+            color: #888;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- <header> -->
+            <!-- <h1>Probabilistic Plots Showcase</h1> -->
+        <!-- </header> -->
+        
+        <div class="navigation-container">
+            <div class="nav-row">
+                <div class="nav-label">Case:</div>
+                <select id="case-dropdown" class="nav-dropdown">
+                    <option value="" disabled selected>Select a case...</option>
+                    <!-- Case options will be generated here -->
+                </select>
+            </div>
+            
+            <div id="experiment-tabs" class="experiment-tabs">
+                <!-- Experiment tabs will be generated here -->
+            </div>
+            
+            <div class="path-display" id="current-path">
+                Current path: <span>No path selected</span>
+            </div>
+            
+            <div class="controls-container">
+                <div class="layout-toggle">
+                    <button id="horizontal-layout" class="layout-btn active">Side by Side</button>
+                    <button id="vertical-layout" class="layout-btn">Vertical Stack</button>
+                </div>
+            </div>
+        </div>
+        
+        <div id="graphs-container" class="graphs-container horizontal">
+            <!-- <div class="loading">Select a case and experiment type to display graphs</div> -->
+        </div>
+        
+        <!-- <footer>
+            Probabilistic Plots Showcase - Created for Visualization and Analysis
+        </footer> -->
+    </div>
+    
+    <script>
+        // Define the structure of your plots
+        const plotStructure = {
+            'case14': ['epsilon', 'confidence_level', 'variation_value'],
+            'case300': ['epsilon', 'confidence_level', 'variation_value'],
+            'case3': ['epsilon', 'confidence_level', 'variation_value'],
+            'case5': ['epsilon', 'confidence_level', 'variation_value'],
+            'case9': ['epsilon', 'confidence_level', 'variation_value'],
+            'case118': ['epsilon', 'confidence_level', 'variation_value'],
+            'case30': ['epsilon', 'confidence_level', 'variation_value'],
+            'case18': ['epsilon', 'confidence_level', 'variation_value'],
+            // Add more cases as needed
+        };
+        
+        // Define the graph names and filenames for each experiment type
+        const graphConfig = {
+            'epsilon': [
+                { name: 'Generator Outputs', file: 'generator_outputs.html' },
+                { name: 'Objective Function', file: 'objective_function.html' },
+                { name: 'Total Generation', file: 'total_generation.html' }
+            ],
+            'confidence_level': [
+                { name: 'Generator Outputs', file: 'generator_outputs.html' },
+                { name: 'Objective Function', file: 'objective_function.html' },
+                { name: 'Total Generation', file: 'total_generation.html' }
+            ],
+            'variation_value': [
+                { name: 'Generator Outputs', file: 'generator_outputs.html' },
+                { name: 'Objective Function', file: 'objective_function.html' },
+                { name: 'Total Generation', file: 'total_generation.html' }
+            ]
+        };
+        
+        // Base path to the plots directory
+        const basePath = 'probabilistic-plots';
+        
+        // DOM elements
+        const caseDropdown = document.getElementById('case-dropdown');
+        const experimentTabs = document.getElementById('experiment-tabs');
+        const graphsContainer = document.getElementById('graphs-container');
+        const currentPathDisplay = document.getElementById('current-path');
+        const horizontalLayoutBtn = document.getElementById('horizontal-layout');
+        const verticalLayoutBtn = document.getElementById('vertical-layout');
+        
+        // State variables
+        let selectedCase = '';
+        let selectedExperiment = '';
+        let currentLayout = 'horizontal';
+        
+        // Initialize the application
+        function init() {
+            // Populate case dropdown
+            populateCaseDropdown();
+            
+            // Set up event listeners
+            caseDropdown.addEventListener('change', handleCaseChange);
+            horizontalLayoutBtn.addEventListener('click', () => setLayout('horizontal'));
+            verticalLayoutBtn.addEventListener('click', () => setLayout('vertical'));
+        }
+        
+        // Set the layout (horizontal or vertical)
+        function setLayout(layout) {
+            currentLayout = layout;
+            
+            // Update layout classes
+            graphsContainer.className = `graphs-container ${layout}`;
+            
+            // Update layout buttons
+            if (layout === 'horizontal') {
+                horizontalLayoutBtn.classList.add('active');
+                verticalLayoutBtn.classList.remove('active');
+            } else {
+                horizontalLayoutBtn.classList.remove('active');
+                verticalLayoutBtn.classList.add('active');
+            }
+            
+            // If graphs are currently displayed, reload them for the new layout
+            if (selectedCase && selectedExperiment) {
+                loadGraphs(selectedCase, selectedExperiment);
+            }
+        }
+        
+        // Populate the case dropdown
+        function populateCaseDropdown() {
+            Object.keys(plotStructure).forEach(caseName => {
+                const option = document.createElement('option');
+                option.value = caseName;
+                option.textContent = caseName;
+                caseDropdown.appendChild(option);
+            });
+        }
+        
+        // Handle case selection change
+        function handleCaseChange() {
+            selectedCase = caseDropdown.value;
+            selectedExperiment = ''; // Reset experiment selection
+            
+            if (selectedCase) {
+                // Create experiment tabs
+                createExperimentTabs(selectedCase);
+                // Update path display
+                updatePathDisplay();
+                // Clear graphs area
+                graphsContainer.innerHTML = '<div class="loading">Select an experiment type</div>';
+            } else {
+                experimentTabs.innerHTML = '';
+                graphsContainer.innerHTML = '<div class="loading">Select a case first</div>';
+                updatePathDisplay();
+            }
+        }
+        
+        // Create experiment tabs for the selected case
+        function createExperimentTabs(caseName) {
+            experimentTabs.innerHTML = '';
+            
+            const experiments = plotStructure[caseName];
+            
+            experiments.forEach(experiment => {
+                const tab = document.createElement('button');
+                tab.className = 'experiment-tab';
+                tab.textContent = experiment.charAt(0).toUpperCase() + experiment.slice(1); // Capitalize first letter
+                
+                tab.addEventListener('click', () => {
+                    // Remove active class from all tabs
+                    document.querySelectorAll('.experiment-tab').forEach(t => {
+                        t.classList.remove('active');
+                    });
+                    
+                    // Add active class to clicked tab
+                    tab.classList.add('active');
+                    
+                    // Update selected experiment
+                    selectedExperiment = experiment;
+                    
+                    // Update path display
+                    updatePathDisplay();
+                    
+                    // Load graphs
+                    loadGraphs(caseName, experiment);
+                });
+                
+                experimentTabs.appendChild(tab);
+            });
+        }
+        
+        // Update the path display
+        function updatePathDisplay() {
+            let pathText = 'No path selected';
+            
+            if (selectedCase) {
+                pathText = `${basePath}/${selectedCase}`;
+                
+                if (selectedExperiment) {
+                    pathText += `/${selectedExperiment}`;
+                }
+            }
+            
+            currentPathDisplay.innerHTML = `Current path: <span>${pathText}</span>`;
+        }
+        
+        // Load graphs for the selected case and experiment
+        function loadGraphs(caseName, experiment) {
+            graphsContainer.innerHTML = '';
+            
+            // Get the graph configurations for this experiment type
+            const currentGraphConfigs = graphConfig[experiment] || [
+                { name: 'Graph 1', file: 'graph1.html' },
+                { name: 'Graph 2', file: 'graph2.html' },
+                { name: 'Graph 3', file: 'graph3.html' }
+            ];
+            
+            // Create a graph box for each graph
+            currentGraphConfigs.forEach(graphCfg => {
+                const graphBox = document.createElement('div');
+                graphBox.className = 'graph-box';
+                
+                const graphTitle = document.createElement('h3');
+                graphTitle.textContent = graphCfg.name;
+                
+                const graphPath = `${basePath}/${caseName}/${experiment}/${graphCfg.file}`;
+                
+                const graphFrame = document.createElement('iframe');
+                graphFrame.className = 'graph-frame';
+                graphFrame.src = graphPath;
+                graphFrame.setAttribute('scrolling', 'no'); // Prevent scrollbars
+                
+                // iframe onload event to adjust content scaling
+                graphFrame.onload = function() {
+                    try {
+                        // Attempt to adjust iframe content scaling
+                        adjustIframeScale(graphFrame);
+                    } catch (e) {
+                        console.error("Could not adjust iframe scaling:", e);
+                    }
+                };
+                
+                const controlsDiv = document.createElement('div');
+                controlsDiv.className = 'graph-controls';
+                
+                const fullscreenBtn = document.createElement('button');
+                fullscreenBtn.className = 'control-btn';
+                fullscreenBtn.textContent = 'Full Screen';
+                fullscreenBtn.addEventListener('click', () => showFullscreen(graphPath, graphCfg.name));
+                
+                controlsDiv.appendChild(fullscreenBtn);
+                
+                graphBox.appendChild(graphTitle);
+                graphBox.appendChild(graphFrame);
+                graphBox.appendChild(controlsDiv);
+                
+                graphsContainer.appendChild(graphBox);
+            });
+        }
+        
+        // Try to adjust iframe scale to fit content
+        function adjustIframeScale(iframe) {
+            // This is a best-effort approach that may not work with all iframe content
+            // due to browser security restrictions
+            try {
+                const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                if (iframeDoc) {
+                    // Add a CSS transform to scale content if needed
+                    const style = document.createElement('style');
+                    style.textContent = `
+                        body {
+                            margin: 0;
+                            padding: 0;
+                            overflow: hidden;
+                            transform-origin: top left;
+                        }
+                    `;
+                    iframeDoc.head.appendChild(style);
+                }
+            } catch (e) {
+                console.warn("Could not access iframe content:", e);
+            }
+        }
+        
+        // Show a graph in fullscreen mode
+        function showFullscreen(graphPath, graphName) {
+            const fullscreenContainer = document.createElement('div');
+            fullscreenContainer.className = 'fullscreen-mode';
+            
+            const closeBtn = document.createElement('button');
+            closeBtn.className = 'close-fullscreen';
+            closeBtn.textContent = 'Close';
+            closeBtn.addEventListener('click', () => {
+                document.body.removeChild(fullscreenContainer);
+            });
+            
+            const title = document.createElement('h2');
+            title.textContent = graphName;
+            
+            const frame = document.createElement('iframe');
+            frame.className = 'fullscreen-iframe';
+            frame.src = graphPath;
+            
+            fullscreenContainer.appendChild(closeBtn);
+            fullscreenContainer.appendChild(title);
+            fullscreenContainer.appendChild(frame);
+            
+            document.body.appendChild(fullscreenContainer);
+        }
+        
+        // Initialize application on page load
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
