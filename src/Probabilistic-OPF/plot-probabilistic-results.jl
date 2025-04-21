@@ -65,13 +65,21 @@ function plot_generator_outputs(results::DataFrame, param_name::String, pg_cols,
         y_values = results[:, col]
         add_scatter(gen_graph, x_values, y_values, "Generator at Bus $bus", i)
     end
+
+    parameter = split(param_name, "_")
+
+    # Capitalize the first letter of each word
+    parameter = [uppercasefirst(word) for word in parameter]
+    
+    # Join with spaces
+    parameter = join(parameter, " ")
     
     # Create and save the plot
     create_plot(
         gen_graph, 
-        "Generator Outputs vs $param_name", 
-        uppercase(param_name), 
-        "Generator Output (p.u.)"
+        "Generator Outputs vs $parameter", 
+        parameter, 
+        "Generator Output"
     )
     save_graph(gen_graph)
 end
@@ -88,11 +96,19 @@ function plot_objective_function(results::DataFrame, param_name::String, output_
     # Add a scatter plot for the objective function
     add_scatter(obj_graph, x_values, y_values, "Objective Value", 1)
     
+    parameter = split(param_name, "_")
+
+    # Capitalize the first letter of each word
+    parameter = [uppercasefirst(word) for word in parameter]
+    
+    # Join with spaces
+    parameter = join(parameter, " ")
+
     # Create and save the plot
     create_plot(
         obj_graph, 
-        "Objective Function vs $param_name", 
-        uppercase(param_name), 
+        "Objective Function vs $parameter", 
+        parameter, 
         "Objective Value"
     )
     save_graph(obj_graph)
@@ -115,12 +131,20 @@ function plot_total_generation(results::DataFrame, param_name::String, pg_cols, 
     # Add a scatter plot for total generation
     add_scatter(total_graph, x_values, total_gen, "Total Generation", 1)
     
+    parameter = split(param_name, "_")
+
+    # Capitalize the first letter of each word
+    parameter = [uppercasefirst(word) for word in parameter]
+    
+    # Join with spaces
+    parameter = join(parameter, " ")
+
     # Create and save the plot
     create_plot(
         total_graph, 
-        "Total Generation vs $param_name", 
-        uppercase(param_name), 
-        "Total Generation (p.u.)"
+        "Total Generation vs $parameter", 
+        parameter, 
+        "Total Generation"
     )
     save_graph(total_graph)
 end
