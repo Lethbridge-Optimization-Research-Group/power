@@ -24,7 +24,7 @@ function build_and_optimize_largest_period(factory, demand, ramping_data)
     return model
 end
 
-function generate_random_loads(largest_model; scenarios_to_generate = 30, variation_percent = 1)
+function generate_random_loads(largest_model; scenarios_to_generate = 7, variation_percent = 1)
     # Used to check that conversion to Dict did not upset order
     #pg_values = value.(largest_model.model[:pg])
 
@@ -61,14 +61,17 @@ function generate_random_loads(largest_model; scenarios_to_generate = 30, variat
     return random_scenarios
 end
 
-function generate_new_loads(current_outputs; scenarios_to_generate = 30, variation_percent = 1)
-
+function generate_new_loads(current_outputs; scenarios_to_generate = 7, variation_percent = 1)
+    # TODO: for the first iterations, focus primarily on decrease (variation can be larger as well)
+    # TODO: change only a few generators each iteration
+    # TODO: Randomly pick subset of gens, change only those
+    # total_it - current_it / total_it = pos_or_neg value for first iterations
     random_scenarios = Vector{Dict{Int64, Float64}}(undef, scenarios_to_generate)
     for i in 1:scenarios_to_generate
         random_dict = Dict()
-        pos_or_neg = rand([0.35, 0.5, 0.65])
+        pos_or_neg = rand([0.15, 0.5, 0.85])
         for (gen, val) in current_outputs
-            max_variation = gen_output * (variation_percent/100)
+            max_variation = val * (variation_percent/100)
             variation = rand() * max_variation
             if rand() >= pos_or_neg
                 random_dict[gen] = val + variation
@@ -77,13 +80,16 @@ function generate_new_loads(current_outputs; scenarios_to_generate = 30, variati
             end
         end
         random_scenarios[i] = random_dict
+        variation_percent += 1
     end
+    #push!(random_scenarios, current_outputs)
     return random_scenarios
 end
-#TODO: Update for new data structures
+
 function power_flow(factory, demand, ramping_data, load)
 
     model = create_search_model(factory, 1, ramping_data, [demand])
+    set_optimizer_attribute(model.model, "LogToConsole", 0)
     for (gen_id, value) in load
         fix(model.model[:pg][1,gen_id], value, force=true)
     end
@@ -91,31 +97,34 @@ function power_flow(factory, demand, ramping_data, load)
 
     return model
 end
-#TODO: Update for new data structures
+
 function extract_power_flow_data(model)
     
     m = value.(model.model[:pg])
     values = [value(m[key]) for key in keys(m)]
     return Dict(zip(m.axes[2], values'))
 end
-#TODO: Update for new data structures
+
 function test_scenarios(factory, demand, ramping_data, random_scenarios)
     feasible_scenarios = []
+    minimum_demand = sum(values(demand))
     for scenario in random_scenarios
             model = power_flow(factory, demand, ramping_data, scenario)
             status = termination_status(model.model)
-    #TODO: Figure out why scenarios are coming back empty
             if status != MOI.LOCALLY_SOLVED && status != MOI.OPTIMAL
                 println("Skipping infeasible scenario")
                 continue  # Skip extracting values from an infeasible model
             end
-
+            if (sum(value.(model.model[:pg])) < minimum_demand)
+                println("Demand not met, skipping scenario")
+                continue # Skip if demand is not met
+            end
             values = extract_power_flow_data(model)
             push!(feasible_scenarios, (values, objective_value(model.model)))
     end
     return feasible_scenarios
 end
-#TODO: Update for new data structures
+
 function build_initial_graph(scenarios::Vector{Any}, time_periods)
     graph = MetaDiGraph()
     defaultweight!(graph, 1.0)
@@ -161,24 +170,9 @@ function build_initial_graph(scenarios::Vector{Any}, time_periods)
 
     return graph
 end
-#TODO: Update for new data structures
-function add_edges_to_initial_graph(graph, time_periods, ramping_data)
 
-    ramp_limits = ramping_data["ramp_limits"]
-    ramp_costs = ramping_data["costs"]
-    for n in 1:(time_periods - 1)
-        nodes_n = collect(filter_vertices(graph, :time_period, n))
-        nodes_n1 = collect(filter_vertices(graph, :time_period, n + 1))
-
-        for node_n in nodes_n
-            for node_n1 in nodes_n1
-               add_edge!(graph, node_n, node_n1) 
-            end
-        end
-    end
-end
-#TODO: Update for new data structures
 function add_weighted_edges(graph, time_periods, ramping_data)
+
     ramp_costs = ramping_data["costs"]
     ramp_limits = ramping_data["ramp_limits"]
     for n in 1:(time_periods - 1)
@@ -209,7 +203,8 @@ function add_weighted_edges(graph, time_periods, ramping_data)
         end
     end
 end
-#TODO: Update for new data structures
+
+
 function shortest_path(graph)
     # find the source node (time period 0)
     source_node = first(filter_vertices(graph, :time_period, 0))
@@ -246,7 +241,7 @@ function shortest_path(graph)
     
     return full_path, total_cost
 end
-#TODO: Update for new data structures
+
 function extract_solution(graph, path)
     solution = Dict{Int, Dict{Symbol, Any}}()  # Dictionary to store node properties
 
@@ -261,7 +256,53 @@ function extract_solution(graph, path)
     return solution
 end
 
-#TODO: Update for new data structures
+function build_new_graph(new_scenarios, time_periods) 
+
+    new_graph = MetaDiGraph()
+    defaultweight!(new_graph, 1.0)
+
+    add_vertex!(new_graph)
+    source_node = nv(new_graph)
+    set_prop!(new_graph, source_node, :time_period, 0)
+    set_prop!(new_graph, source_node, :generator_values, 0)
+    set_prop!(new_graph, source_node, :cost, 0)
+
+    for t in 1:time_periods
+        for (s, scenario) in enumerate(new_scenarios[t])
+            add_vertex!(new_graph)
+            current_node = nv(new_graph)
+            set_prop!(new_graph, current_node, :time_period, t)
+            set_prop!(new_graph, current_node, :generator_values, scenario[1])
+            set_prop!(new_graph, current_node, :cost, scenario[2])
+        end
+    end
+
+    add_vertex!(new_graph)
+    sink_node = nv(new_graph)
+    set_prop!(new_graph, sink_node, :time_period, time_periods + 1)
+    set_prop!(new_graph, sink_node, :generator_values, 0)
+    set_prop!(new_graph, sink_node, :cost, 0)
+
+    # Connect source to first time period nodes
+    first_nodes = collect(filter_vertices(new_graph, :time_period, 1))
+    for n in first_nodes
+        add_edge!(new_graph, source_node, n)
+        edge = Edge(source_node, n)
+        set_prop!(new_graph, edge, :weight, 0)
+    end
+    
+    # Connect last time period nodes to sink
+    last_nodes = collect(filter_vertices(new_graph, :time_period, time_periods))
+    for n in last_nodes
+        add_edge!(new_graph, n, sink_node)
+        edge = Edge(n, sink_node)
+        set_prop!(new_graph, edge, :weight, 0)
+    end
+
+    return new_graph
+end
+
+
 function iter_search(factory, demands, ramping_data, time_periods)
 
     highest_demand = find_largest_time_period(time_periods, demands)
@@ -273,128 +314,72 @@ function iter_search(factory, demands, ramping_data, time_periods)
 
     graph = build_initial_graph(scenarios, time_periods)
     add_weighted_edges(graph, time_periods, ramping_data)
-#=
+
     path, cost = shortest_path(graph)
     
     best_graph = graph
     best_path = path[2:end - 1]
     best_cost = cost
-    solution = extract_solution(graph, best_path)
+    best_solution = extract_solution(best_graph, best_path)
 
-    cost_history = [best_cost]
+    cost_history = Vector{Float64}()
+    push!(cost_history, best_cost)
 
-    generator_values_dict = Dict()
-    for (time_period, data) in solution
-        generator_values_dict[time_period] = data[:generator_values]
-    end
+    iteration = 1
+    converged = false
+    max_iterations = 10
+    convergence_threshold = 0.01
 
-    for (t, vals) in generator_values_dict
-        generate_new_loads(vals)
-    end
-
-=#
-    return graph#, scenarios, best_path, best_cost, solution
-
-end
-
-function iterative_search(factory, demands, ramping_data, time_periods; max_iterations=5, convergence_threshold=0.01)
-    # First iteration using the existing search function
-    g, scenarios, path, total_cost = search(factory, demands, ramping_data, time_periods)
-    
-    println("Iteration 1: Total Cost = $total_cost")
-    
-    # Store the best solution so far
-    best_path = path
-    best_cost = total_cost
-    best_g = g
-    
-    # Store history for analysis
-    cost_history = [total_cost]
-    path_history = [path]
-    
-    # Remove first and last nodes (virtual source/sink)
-    actual_path = path[2:end-1]
-    
-    # Iterative refinement
-    for iter in 2:max_iterations
-        # Extract generator values from the current best path to use as centers for new scenarios
-        path_generator_values = []
-        for node in actual_path
-            if node == 0 || get_prop(best_g, node, :time_period) == time_periods + 1
-                continue  # Skip source/sink nodes
+    while !converged && iteration < max_iterations
+        generator_values = Vector{Dict{Int64, Float64}}()
+        for i in 1:time_periods
+            time_period_vals = Dict()
+            for (gen, val) in best_solution[i][:generator_values]
+                time_period_vals[gen] = val
             end
-            push!(path_generator_values, get_prop(best_g, node, :generator_values))
+            push!(generator_values, time_period_vals)
         end
-        
-        # Generate new scenarios focused around the current best solution
-        # with decreasing variation as iterations progress
-        variation_percent = max(10.0 / iter, 1.0)  # Decrease variation over iterations
-        
-        new_scenarios = []
-        
-        # For each time period, generate new scenarios
-        for t in 1:time_periods
-            # If we have a valid generator value for this time period in our path
-            if t <= length(path_generator_values)
-                base_values = path_generator_values[t]
-                
-                # Generate random variations around this point
-                scenarios_per_period = max(10, 30 ÷ iter)  # Fewer scenarios in later iterations
-                
-                for s in 1:scenarios_per_period
-                    random_dict = Dict{Int64, Float64}()
-                    for (gen_id, gen_output) in base_values
-                        # Calculate how much variation we want (decreasing with iterations)
-                        max_variation = gen_output * (variation_percent/100)
-                        variation = (rand() * 2 - 1) * max_variation  # Between -max_var and +max_var
-                        random_dict[gen_id] = max(0.0, gen_output + variation)
-                    end
-                    
-                    # Test if this scenario is feasible
-                    model = power_flow(factory, demands[t], ramping_data, random_dict)
-                    status = termination_status(model.model)
-                    
-                    if status == MOI.LOCALLY_SOLVED || status == MOI.OPTIMAL
-                        values = extract_power_flow_data(model)
-                        push!(new_scenarios, (values, objective_value(model.model)))
-                    end
-                end
-            end
+        # maybe combine these two loops
+        test_values = Vector{Vector{Dict{Int64, Float64}}}()
+        new_feasible_values = Vector{Vector{Any}}()
+        for i in 1:time_periods
+            push!(new_feasible_values, Vector{Any}())
         end
-        
-        # Build a new graph with the refined scenarios
-        new_g = build_initial_graph(new_scenarios, time_periods)
-        add_weighted_edges(new_g, time_periods, ramping_data)
-        
-        # Find shortest path in the new graph
-        new_path, new_cost = shortest_path(new_g)
-        
-        println("Iteration $iter: Total Cost = $new_cost")
-        push!(cost_history, new_cost)
-        push!(path_history, new_path)
-        
-        # Check if we've improved
+
+        for i in 1:time_periods
+            loads_for_period = generate_new_loads(generator_values[i])
+            tested_loads = test_scenarios(factory, demands[i], ramping_data, loads_for_period)
+            new_feasible_values[i] =  tested_loads
+        end
+        # new_feasible_values[1][1][1] = value Dict, [1][1][2] = total gen cost
+        # run shortest path and compare values
+        new_graph = build_new_graph(new_feasible_values, time_periods)
+        add_weighted_edges(new_graph, time_periods, ramping_data)
+
+        new_path, new_cost = shortest_path(new_graph)
+        #=
+        if abs(new_cost - best_cost) < 0.01
+            println("Converged on $best_cost")
+            converged = true
+        end
+        =#
         if new_cost < best_cost
-            improvement = (best_cost - new_cost) / best_cost
-            println("Improvement: $(improvement * 100)%")
-            
-            # Update best solution
-            best_path = new_path
+            best_graph = new_graph
             best_cost = new_cost
-            best_g = new_g
-            
-            # Check for convergence
-            if improvement < convergence_threshold
-                println("Converged after $iter iterations (improvement below threshold)")
-                break
-            end
-        else
-            println("No improvement in this iteration")
+            best_path = new_path
+            best_solution = extract_solution(best_graph, best_path)
         end
+        push!(cost_history, best_cost)
+        iteration += 1
+        println("Iteration: ", iteration)
     end
-    
-    return best_g, path_history, best_path, best_cost, cost_history
+
+
+    display(cost_history)
+    return best_graph, best_path, best_cost, best_solution, cost_history
+
 end
+
 
 function find_infeasible_constraints(model::Model)
     #if termination_status(model) != MOI.LOCALLY_INFEASIBLE
@@ -470,4 +455,43 @@ function find_bound_violations(model::Model)
 	end
     	# return the violations
 	return violations
+end
+
+function print_path_details(graph, path)
+    println("Path Details:")
+    println("------------")
+    
+    # Iterate through each node in the path
+    for i in 1:length(path)
+        node = path[i]
+        
+        # Print node information
+        println("Node $i: $node")
+        println("  Time Period: ", get_prop(graph, node, :time_period))
+        println("  Generator Values: ", get_prop(graph, node, :generator_values))
+        println("  Cost: ", get_prop(graph, node, :cost))
+        
+        # Print edge information (if not the last node)
+        if i < length(path)
+            next_node = path[i+1]
+            if has_edge(graph, node, next_node)
+                edge_weight = get_prop(graph, node, next_node, :weight)
+                println("  Edge to $(next_node):")
+                println("    Weight: ", edge_weight)
+            else
+                println("  No edge exists to $(next_node)")
+            end
+        end
+        println()
+    end
+    
+    # Calculate and print total path cost
+    total_cost = sum(get_prop(graph, node, :cost) for node in path)
+    total_edge_weight = 0.0
+    for i in 1:(length(path)-1)
+        if has_edge(graph, path[i], path[i+1])
+            total_edge_weight += get_prop(graph, path[i], path[i+1], :weight)
+        end
+    end
+    println("Total Path Cost: ", total_cost + total_edge_weight)
 end
