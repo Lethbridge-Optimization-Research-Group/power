@@ -132,10 +132,10 @@ end
 function run_all_parameter_sweeps(case_files::Vector{String}, output_dir::String="./probabilistic-results")
     # Define base parameters
     base_params = Dict(
-        :epsilon => 6.0,
-        :confidence_level => 0.90,
-        :variation_type => :relative,
-        :variation_value => 0.15
+        :epsilon => 10.0,
+        :confidence_level => 0.95,
+        :variation_type => :absolute,
+        :variation_value => 0.25
     )
     
     for file_path in case_files
@@ -211,15 +211,20 @@ function run_variation_sweep(case_files::Vector{String}, output_dir::String="./p
 end
 
 # Example usage with multiple case files
+# case_files = [
+#     "././Cases/case14.m",
+#     "././Cases/case300.m",
+#     "././Cases/case3.m",
+#     "././Cases/case5.m",
+#     "././Cases/case9.m",
+#     "././Cases/case118.m",
+#     "././Cases/case30.m",
+#     "././Cases/case18.m",
+# ]
+
 case_files = [
     "././Cases/case14.m",
-    "././Cases/case300.m",
-    "././Cases/case3.m",
-    "././Cases/case5.m",
-    "././Cases/case9.m",
     "././Cases/case118.m",
-    "././Cases/case30.m",
-    "././Cases/case18.m",
 ]
 
 # Run all parameter sweeps for all cases

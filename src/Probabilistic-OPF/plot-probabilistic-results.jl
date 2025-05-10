@@ -51,6 +51,17 @@ function plot_case_sweep_results(
     return true
 end
 
+function save_graph_as_vector(graph::Graph, format::String="svg")
+    # Get the base path without extension
+    base_path = splitext(graph.location)[1]
+    output_path = "$(base_path).$(format)"
+    
+    # Save in the specified vector format
+    PlotlyJS.savefig(graph.plot, output_path, format=format)
+    
+    println("Saved vector image to: $output_path")
+end
+
 function plot_generator_outputs(results::DataFrame, param_name::String, pg_cols, bus_numbers, output_dir::String)
     # Create graph for generator outputs with standardized filename
     graph_location = joinpath(output_dir, "generator_outputs.html")
@@ -60,10 +71,15 @@ function plot_generator_outputs(results::DataFrame, param_name::String, pg_cols,
     x_values = results[:, Symbol(param_name)]
     
     # Add a scatter plot for each generator
-    for (i, col) in enumerate(pg_cols)
-        bus = bus_numbers[i]
+    # Sort bus numbers and corresponding columns
+    sorted_indices = sortperm(bus_numbers)
+    sorted_bus_numbers = bus_numbers[sorted_indices]
+    sorted_pg_cols = pg_cols[sorted_indices]
+    
+    for (i, col) in enumerate(sorted_pg_cols)
+        bus = sorted_bus_numbers[i]
         y_values = results[:, col]
-        add_scatter(gen_graph, x_values, y_values, "Generator at Bus $bus", i)
+        add_scatter(gen_graph, x_values, y_values, "Generator at Bus $bus   ", i)
     end
 
     parameter = split(param_name, "_")
@@ -74,14 +90,38 @@ function plot_generator_outputs(results::DataFrame, param_name::String, pg_cols,
     # Join with spaces
     parameter = join(parameter, " ")
     
+    # Extract case name from the output_dir path
+    path_components = splitpath(output_dir)
+    case_name = length(path_components) >= 2 ? path_components[end-1] : "Unknown"
+    
+    if lowercase(param_name) == "epsilon"
+        parameter2 = "$parameter (p.u.)"
+    else
+        parameter2 = "$parameter (%)"
+    end
+
     # Create and save the plot
     create_plot(
         gen_graph, 
-        "Generator Outputs vs $parameter", 
-        parameter, 
-        "Generator Output"
+        "Generator Outputs vs $parameter ($case_name)", 
+        "$parameter2", 
+        "Generator Output (p.u)",
+        (0.01, 0.98),  # Legend position
+        1200, 600 # Width and height
     )
+
+    # After create_plot but before save_graph, modify the x-axis properties using relayout!
+    PlotlyJS.relayout!(gen_graph.plot, Dict(
+        :xaxis_tickmode => "linear", 
+        :xaxis_dtick => 0.1,
+        :xaxis_range => [0.4, 2.4]  # Set x-axis to start at 1 and end at 3
+    ))
+    
+    # # After create_plot but before save_graph, modify the x-axis properties using relayout!
+    # PlotlyJS.relayout!(gen_graph.plot, Dict(:xaxis_tickmode => "linear", :xaxis_dtick => 0.1))
+    
     save_graph(gen_graph)
+    save_graph_as_vector(gen_graph, "svg")  # Also save as SVG
 end
 
 function plot_objective_function(results::DataFrame, param_name::String, output_dir::String)
@@ -104,14 +144,36 @@ function plot_objective_function(results::DataFrame, param_name::String, output_
     # Join with spaces
     parameter = join(parameter, " ")
 
-    # Create and save the plot
+    # Extract case name from the output_dir path
+    path_components = splitpath(output_dir)
+    case_name = length(path_components) >= 2 ? path_components[end-1] : "Unknown"
+
+    if lowercase(param_name) == "epsilon"
+        parameter2 = "$parameter (p.u.)"
+    else
+        parameter2 = "$parameter (%)"
+    end
+
     create_plot(
         obj_graph, 
-        "Objective Function vs $parameter", 
-        parameter, 
-        "Objective Value"
+        "Objective Function vs $parameter ($case_name)", 
+        "$parameter2",
+        "Objective Value",
+        (0.01, 0.98),  # Legend position
+        1200, 600 # Width and height
     )
+
+    PlotlyJS.relayout!(obj_graph.plot, Dict(
+        :xaxis_tickmode => "linear", 
+        :xaxis_dtick => 0.1,
+        :xaxis_range => [0.0, 1.0],  # Set x-axis to start at 1 and end at 3
+    ))
+    
+    # # After create_plot but before save_graph, modify the x-axis properties using relayout!
+    # PlotlyJS.relayout!(gen_graph.plot, Dict(:xaxis_tickmode => "linear", :xaxis_dtick => 0.1))
+    
     save_graph(obj_graph)
+    save_graph_as_vector(obj_graph, "svg")  # Also save as SVG
 end
 
 function plot_total_generation(results::DataFrame, param_name::String, pg_cols, bus_numbers, output_dir::String)
@@ -139,14 +201,38 @@ function plot_total_generation(results::DataFrame, param_name::String, pg_cols, 
     # Join with spaces
     parameter = join(parameter, " ")
 
+    # Extract case name from the output_dir path
+    path_components = splitpath(output_dir)
+    case_name = length(path_components) >= 2 ? path_components[end-1] : "Unknown"
+
+    if lowercase(param_name) == "epsilon"
+        parameter2 = "$parameter (p.u.)"
+    else
+        parameter2 = "$parameter (%)"
+    end
+
     # Create and save the plot
     create_plot(
         total_graph, 
-        "Total Generation vs $parameter", 
-        parameter, 
-        "Total Generation"
+        "Total Generation vs $parameter ($case_name)", 
+        "$parameter2 (p.u)", 
+        "Total Generation",
+        (0.01, 0.98),  # Legend position
+        1200, 600 # Width and height
     )
+
+    # After create_plot but before save_graph, modify the x-axis properties using relayout!
+    PlotlyJS.relayout!(total_graph.plot, Dict(
+        :xaxis_tickmode => "linear", 
+        :xaxis_dtick => 0.1,
+        :xaxis_range => [0.4, 2.4]  # Set x-axis to start at 1 and end at 3
+    ))
+    
+    # # After create_plot but before save_graph, modify the x-axis properties using relayout!
+    # PlotlyJS.relayout!(gen_graph.plot, Dict(:xaxis_tickmode => "linear", :xaxis_dtick => 0.1))
+    
     save_graph(total_graph)
+    save_graph_as_vector(total_graph, "svg")  # Also save as SVG
 end
 
 function plot_all_results(
