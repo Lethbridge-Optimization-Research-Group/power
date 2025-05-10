@@ -104,7 +104,7 @@ end
 # end
 
 # This is the new function for creating a plot
-function create_plot(graph, title, x_label, y_label, Legend = (0.01, 0.98))
+function create_plot(graph, title, x_label, y_label, Legend = (0.01, 0.98), width = 800, height = 600, autosize = false)
 	legend_x = Legend[1]
 	legend_y = Legend[2]
     layout = Layout(
@@ -147,9 +147,9 @@ function create_plot(graph, title, x_label, y_label, Legend = (0.01, 0.98))
         ),
         plot_bgcolor = "white",
         paper_bgcolor = "white",
-        # width = 800,
-        # height = 600,
-        autosize = true,
+        width = width,
+        height = height,
+        autosize = autosize,
         margin = attr(l = 80, r = 50, t = 100, b = 80),
         shapes = [
             attr(

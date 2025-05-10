@@ -147,7 +147,8 @@ function generate_correlated_scenarios(file_path::String, num_scenarios::Int64, 
         end
     end
     
-    return scenarios, correlation_matrix, covariance_matrix
+    # return scenarios, correlation_matrix, covariance_matrix
+    return scenarios
 end
 
 """
