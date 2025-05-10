@@ -3,10 +3,15 @@ using PowerModels, MPOPF, Statistics, LinearAlgebra
 using DataFrames, CSV  # For data organization
 
 # Test parameters
-cases = ["case14", "case300"]
-mu_plus_values = [10.0, 50.0, 100.0, 500.0, 1000.0]
-mu_minus_values = [10.0, 50.0, 100.0, 500.0, 1000.0]
-variation_values = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40]
+cases = ["case14"]
+# mu_plus_values = [10.0, 50.0, 100.0, 500.0, 1000.0]
+
+# Creating a loop that creates a list of values in an array 100 apart
+mu_plus_values = [1000.0:1000.0:10000.0;]
+mu_minus_values = [1000.0:1000.0:10000.0;]
+
+# mu_minus_values = [10.0, 50.0, 100.0, 500.0, 1000.0]
+variation_values = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50]
 num_scenarios = 100
 
 # Initialize results DataFrame
