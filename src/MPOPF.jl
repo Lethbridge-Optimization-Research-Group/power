@@ -17,6 +17,7 @@ module MPOPF
 
     # Export of this file
     export create_model, create_search_model, optimize_model, ACMPOPFModelFactory, DCMPOPFModelFactory, optimize_model_with_plot, LinMPOPFModelFactory, NewACMPOPFModelFactory, DCMPOPFSearchFactory, create_model_check_feasibility, get_ref
+    export MPOPFModelUncertaintyExtended, create_model_with_uncertainty
 
     # Export of implementation_uncertainty.jl
     export generate_random_load_scenarios, setup_demand_distributions, sample_demand_scenarios, return_loads
@@ -57,6 +58,14 @@ module MPOPF
     end
 
     export MODEL_TYPE, Lin1, Lin2, Lin3
+
+    # Create enum for uncertainty approaches
+    @enum UNCERTAINTY_TYPE begin
+        ScenarioBased = 1
+        ChanceConstrained = 2
+    end
+
+    export UNCERTAINTY_TYPE, ScenarioBased, ChanceConstrained
 
 ##############################################################################################
 # Factory Structs
@@ -209,6 +218,37 @@ module MPOPF
             return new(model, data, scenarios, time_periods, factors, ramping_cost)
         end
     end
+
+    # Extend the MPOPFModelUncertainty struct to include uncertainty type
+    ```
+        TODO: Document
+    ```
+    mutable struct MPOPFModelUncertaintyExtended <: AbstractMPOPFModel
+        model::JuMP.Model
+        data::Dict
+        uncertainty_type::UNCERTAINTY_TYPE
+        # For scenario-based
+        scenarios::Union{Dict, Nothing}
+        # For chance-constrained
+        distributions::Union{Dict, Nothing}
+        confidence_level::Union{Float64, Nothing}
+        epsilon::Union{Float64, Nothing}
+        # Common fields
+        time_periods::Int64
+        factors::Vector{Float64}
+        ramping_cost::Int64
+
+        # Constructor for scenario-based (backwards compatible)
+        function MPOPFModelUncertaintyExtended(model::JuMP.Model, data::Dict, scenarios::Dict, time_periods::Int64=1, factors::Vector{Float64}=[1.0], ramping_cost::Int64=0)
+            return new(model, data, ScenarioBased, scenarios, nothing, nothing, nothing, time_periods, factors, ramping_cost)
+        end
+        
+        # Constructor for chance-constrained
+        function MPOPFModelUncertaintyExtended(model::JuMP.Model, data::Dict, distributions::Dict, confidence_level::Float64, epsilon::Float64, time_periods::Int64=1, factors::Vector{Float64}=[1.0], ramping_cost::Int64=0)
+            return new(model, data, ChanceConstrained, nothing, distributions, confidence_level, epsilon, time_periods, factors, ramping_cost)
+        end
+    end
+
     ```
         TODO: Document
     ```
@@ -235,6 +275,7 @@ module MPOPF
     include("implementation-ac.jl")
     include("implementation-dc.jl")
     include("implementation_uncertainty.jl")
+    include("implementation-chance_constraints.jl")
     include("implementation-linear.jl")
     include("implementation-new_ac.jl")
     include("implementation-search_dc.jl")
@@ -311,6 +352,89 @@ module MPOPF
         set_model_uncertainty_constraints!(power_flow_model, factory)
 
         return power_flow_model
+    end
+
+    """
+        create_model(factory::AbstractMPOPFModelFactory, probability_threshold::Float64, distribution_params::Dict, mismatch_costs::Tuple{Float64,Float64}=(10000.0, 10000.0), time_periods::Int64=1, factors::Vector{Float64}=[1.0], ramping_cost::Int64=0)::MPOPFModelUncertaintyExtended
+
+    Create a Multi-Period Optimal Power Flow (MPOPF) model with chance-constrained uncertainty.
+
+    # Arguments
+    - `factory`: The factory used to create the specific type of MPOPF model.
+    - `distributions`: Dictionary containing distribution parameters for uncertain variables.
+    - `confidence_level`: Probability threshold for chance constraints (e.g., 0.95 for 95% confidence).
+    - `epsilon`: Value that represents relaxation of the constraints.
+    - `mismatch_costs`: Tuple of costs for positive and negative power mismatches.
+    - `time_periods`: Number of time periods to consider in the model. Default is 1.
+    - `factors`: Scaling factors for each time period. Default is [1.0].
+    - `ramping_cost`: Cost associated with ramping generation up or down. Default is 0.
+
+    # Returns
+    An `MPOPFModelUncertaintyExtended` object with chance constraints.
+    """
+    function create_model(factory::AbstractMPOPFModelFactory, distributions::Dict, confidence_level::Float64, epsilon::Float64, time_periods::Int64=1, factors::Vector{Float64}=[1.0], ramping_cost::Int64=0)::MPOPFModelUncertaintyExtended
+        data = PowerModels.parse_file(factory.file_path)
+        PowerModels.standardize_cost_terms!(data, order=2)
+        PowerModels.calc_thermal_limits!(data)
+
+        model = JuMP.Model(factory.optimizer)
+        power_flow_model = MPOPFModelUncertaintyExtended(model, data, distributions, confidence_level, epsilon, time_periods, factors, ramping_cost)
+
+        set_model_variables!(power_flow_model, factory)
+        # If we need to add more variables later we can do it here
+        # set_model_chance_constraint_variables!(power_flow_model)
+        set_model_chance_constraint_objective_function!(power_flow_model, factory)
+        set_model_chance_constraint_constraints!(power_flow_model, factory, distributions, confidence_level, epsilon)
+
+        return power_flow_model
+    end
+
+    # Add a unified create_model that can handle both approaches
+    """
+        create_model_with_uncertainty(factory::AbstractMPOPFModelFactory, uncertainty_type::UNCERTAINTY_TYPE; kwargs...)
+
+    Create a Multi-Period Optimal Power Flow (MPOPF) model with specified uncertainty approach.
+
+    # Arguments
+    - `factory`: The factory used to create the specific type of MPOPF model.
+    - `uncertainty_type`: Type of uncertainty approach (ScenarioBased or ChanceConstrained).
+    - `kwargs`: Keyword arguments specific to each uncertainty type.
+
+    For ScenarioBased, expects:
+    - `scenarios::Dict`
+    - `mismatch_costs::Tuple{Float64,Float64}`
+
+    For ChanceConstrained, expects:
+    - `probability_threshold::Float64`
+    - `distribution_params::Dict`
+    - `mismatch_costs::Tuple{Float64,Float64}`
+
+    Plus common parameters:
+    - `time_periods::Int64`
+    - `factors::Vector{Float64}`
+    - `ramping_cost::Int64`
+
+    # Returns
+    An `MPOPFModelUncertaintyExtended` object.
+    """
+    function create_model_with_uncertainty(factory::AbstractMPOPFModelFactory, uncertainty_type::UNCERTAINTY_TYPE; kwargs...)
+        # Extract common parameters
+        time_periods = get(kwargs, :time_periods, 1)
+        factors = get(kwargs, :factors, [1.0])
+        ramping_cost = get(kwargs, :ramping_cost, 0)
+        mismatch_costs = get(kwargs, :mismatch_costs, (10000.0, 10000.0))
+        
+        if uncertainty_type == ScenarioBased
+            scenarios = kwargs[:scenarios]
+            return create_model(factory, scenarios, mismatch_costs, time_periods, factors, ramping_cost)
+        elseif uncertainty_type == ChanceConstrained
+            confidence_level = kwargs[:confidence_level]
+            distributions = kwargs[:distributions]
+            epsilon = kwargs[:epsilon]
+            return create_model(factory, distributions, confidence_level, epsilon, time_periods, factors, ramping_cost)
+        else
+            error("Unknown uncertainty type: $uncertainty_type")
+        end
     end
 
     # A new create model to create a secondary model that asseses how feasible the first solution was
