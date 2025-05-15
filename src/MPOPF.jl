@@ -221,7 +221,7 @@ module MPOPF
 
     # Extend the MPOPFModelUncertainty struct to include uncertainty type
     ```
-        TODO: Document
+        TODO: Document compatibility 
     ```
     mutable struct MPOPFModelUncertaintyExtended <: AbstractMPOPFModel
         model::JuMP.Model
@@ -405,9 +405,9 @@ module MPOPF
     - `mismatch_costs::Tuple{Float64,Float64}`
 
     For ChanceConstrained, expects:
-    - `probability_threshold::Float64`
-    - `distribution_params::Dict`
-    - `mismatch_costs::Tuple{Float64,Float64}`
+    - `distributions::Dict`
+    - `confidence_level::Float64`
+    - `epsilon::Float64`
 
     Plus common parameters:
     - `time_periods::Int64`
