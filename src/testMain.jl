@@ -19,27 +19,50 @@ PowerModels.calc_thermal_limits!(data)
 #TODO: Try and reuse models 
 #TODO: Tweak search parameters, adjust variation
 #TODO: See if we can use powermodels for PF 
+#TODO: Calculate cost manually, and only test scenarios w lower cost
 #TODO: Look into running in parallel
 #TODO: see if we can silence PowerModels output as well
-#TODO: compare infeasible full model, see if feasibility improves w local search
-#TODO: plot improvements between iterations (100-500 busses) - Done
-#TODO: Run on some bigger cases, full model vs local search model with more iterations - Tried
-#TODO: State of case9241, *try* same data on local search for a small number of iterations - Too large
-ramping_csv_file = generate_power_system_csv(data, output_dir)
-ramping_data, demands = parse_power_system_csv(ramping_csv_file, matpower_file_path)
+#TODO: generate Pg values in a smart way, avoid random
+    #TODO: Compare ramping and Pg of search model to the optimal model
+    #TODO: Check pmax and pmin before testing feasibility 
+        # virtually 0% of failed cases are due to pmin / pmax violation
+#TODO: Count how many of the infeasible scenarios are due to pmin/pmax violations
+#TODO: OR generate values inside of pmax/pmin and compare graphs
+#TODO: Increase ramping cost and compare to optimal
+    #TODO: Parellelization (generate shortest path, test each node in parallel)
+#TODO: Hot start feasibility testing with current solution values 
+#TODO: Modify for AC and see how much time / solution quality increases
 
-search_factory = DCMPOPFSearchFactory(matpower_file_path, Gurobi.Optimizer)
-search_model = create_search_model(search_factory, 5, ramping_data, demands)
-opt_start = time()
-optimize!(search_model.model)
-opt_stop = time()
-println(opt_stop - opt_start, " seconds")
+# Save input data (csv) for a baseline for each case
 
-search_start = time()
-graph, full_path, total_cost, solution, cost_history = iter_search(search_factory, demands, ramping_data, 5)
-search_stop = time()
-println()
+# FUTURE
+#TODO: Develop Newton method for solving PF and compare time with
+# a warm start to JuMP model
 
+
+differences = Float64[]
+#for i in 1:1 =#
+    ramping_csv_file = generate_power_system_csv(data, output_dir)
+    ramping_data, demands = parse_power_system_csv(ramping_csv_file, matpower_file_path)
+
+    search_factory = DCMPOPFSearchFactory(matpower_file_path, Gurobi.Optimizer)
+    search_model = create_search_model(search_factory, 5, ramping_data, demands)
+    opt_start = time()
+    optimize!(search_model.model)
+    opt_stop = time()
+    println(opt_stop - opt_start, " seconds")
+
+    search_start = time()
+    graph, full_path, total_cost, solution, cost_history, total_violations = iter_search(search_factory, demands, ramping_data, 5)
+    search_stop = time()
+    println()
+
+    opt = objective_value(search_model.model)
+    diff = total_cost / opt
+    push!(differences, diff)
+#end
+
+#println(sum(differences) / 10)
 #largest = find_largest_time_period(12, demands)
 #largest_model = build_and_optimize_largest_period(search_factory, demands[largest], ramping_data)
 #loads = generate_random_loads(largest_model)
@@ -59,7 +82,7 @@ if status == MOI.OPTIMAL || status == MOI.LOCALLY_SOLVED
     println("Objective value: $(objective_value(verification_model.model))")
 end
 =#
-
+#=
 opt = objective_value(search_model.model)
 
 plot(cost_history, 
@@ -71,5 +94,29 @@ plot(cost_history,
      marker=:circle,
      markersize=3)
 annotate!(1, maximum(cost_history), text("Opt: = $opt", :left, 10))
+title = time()
+savefig("$title.png")
+=#
 
-savefig("cost_history.png")
+#=
+case14 - 6.36%
+case18 - 2.91%
+case30Q - 3.14%
+case39 - 5.53%
+case118 - 1.13%
+case300 - ~ 1%
+case1354 - 20 iter - 2.34%
+=#
+#=
+# look into creating a custom model, and then calling
+# PowerModels.solve_model() on it after variables are fixed
+data["gen"]["1"]["pg"] = 2.15606
+data["gen"]["2"]["pg"] = 0.373197
+data["gen"]["3"]["pg"] = 0.0206484
+data["gen"]["4"]["pg"] = 0.0203327
+data["gen"]["5"]["pg"] = 0.0198465
+
+#test_model = PowerModels.solve_pf(data, DCPPowerModel, Gurobi.Optimizer)
+
+# annotate!(x, y, Plots.text("$x, $y", :red, :right, 10))
+=#

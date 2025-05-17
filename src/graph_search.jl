@@ -24,10 +24,7 @@ function build_and_optimize_largest_period(factory, demand, ramping_data)
     return model
 end
 
-function generate_random_loads(largest_model; scenarios_to_generate = 7, variation_percent = 1)
-    # Used to check that conversion to Dict did not upset order
-    #pg_values = value.(largest_model.model[:pg])
-
+function generate_random_loads(largest_model; scenarios_to_generate = 15, variation_percent = 1)
     # Extract largest values
     if termination_status(largest_model.model) == MOI.INFEASIBLE
         error("Largest model is infeasible. Cannot generate random loads.")
@@ -61,15 +58,11 @@ function generate_random_loads(largest_model; scenarios_to_generate = 7, variati
     return random_scenarios
 end
 
-function generate_new_loads(current_outputs; scenarios_to_generate = 7, variation_percent = 1)
-    # TODO: for the first iterations, focus primarily on decrease (variation can be larger as well)
-    # TODO: change only a few generators each iteration
-    # TODO: Randomly pick subset of gens, change only those
-    # total_it - current_it / total_it = pos_or_neg value for first iterations
+function generate_new_loads(current_outputs, iteration; scenarios_to_generate = 15, variation_percent = 1)
     random_scenarios = Vector{Dict{Int64, Float64}}(undef, scenarios_to_generate)
     for i in 1:scenarios_to_generate
         random_dict = Dict()
-        pos_or_neg = rand([0.15, 0.5, 0.85])
+        pos_or_neg = max(0.65, 1 - floor(iteration / 10) / 10)
         for (gen, val) in current_outputs
             max_variation = val * (variation_percent/100)
             variation = rand() * max_variation
@@ -82,20 +75,25 @@ function generate_new_loads(current_outputs; scenarios_to_generate = 7, variatio
         random_scenarios[i] = random_dict
         variation_percent += 1
     end
-    #push!(random_scenarios, current_outputs)
+    push!(random_scenarios, current_outputs)
     return random_scenarios
 end
 
 function power_flow(factory, demand, ramping_data, load)
-
+    violations_count = 0
     model = create_search_model(factory, 1, ramping_data, [demand])
     set_optimizer_attribute(model.model, "LogToConsole", 0)
     for (gen_id, value) in load
-        fix(model.model[:pg][1,gen_id], value, force=true)
+        if model.data["gen"][string(gen_id)]["pmin"] - 0.001 <= value <= model.data["gen"][string(gen_id)]["pmax"]
+            fix(model.model[:pg][1,gen_id], value, force=true)
+        else
+            violations_count += 1
+        end
     end
+    #@objective(model.model, MOI.FEASIBILITY_SENSE, 0) # did not speed up
     optimize!(model.model)
-
-    return model
+    #TODO: Add a feasible flag to avoid optimizing models that violate bounds
+    return model, violations_count
 end
 
 function extract_power_flow_data(model)
@@ -106,10 +104,13 @@ function extract_power_flow_data(model)
 end
 
 function test_scenarios(factory, demand, ramping_data, random_scenarios)
+    total_violations = 0
+
     feasible_scenarios = []
     minimum_demand = sum(values(demand))
     for scenario in random_scenarios
-            model = power_flow(factory, demand, ramping_data, scenario)
+            model, scenario_violations = power_flow(factory, demand, ramping_data, scenario)
+            total_violations += scenario_violations
             status = termination_status(model.model)
             if status != MOI.LOCALLY_SOLVED && status != MOI.OPTIMAL
                 println("Skipping infeasible scenario")
@@ -122,7 +123,7 @@ function test_scenarios(factory, demand, ramping_data, random_scenarios)
             values = extract_power_flow_data(model)
             push!(feasible_scenarios, (values, objective_value(model.model)))
     end
-    return feasible_scenarios
+    return feasible_scenarios, total_violations
 end
 
 function build_initial_graph(scenarios::Vector{Any}, time_periods)
@@ -206,14 +207,23 @@ end
 
 
 function shortest_path(graph)
-    # find the source node (time period 0)
+
+    working_graph = deepcopy(graph)
+
+    for e in edges(working_graph)
+        src = Graphs.src(e)
+        dst = Graphs.dst(e)
+        current_weight = get_prop(working_graph, src, dst, :weight)
+        node_cost = get_prop(working_graph, src, :cost)
+        set_prop!(working_graph, src, dst, :weight, current_weight + node_cost)
+    end
+
+    # find the source node and sink nodes
     source_node = first(filter_vertices(graph, :time_period, 0))
-    
-    # find the sink node (time period n+1)
     sink_node = first(filter_vertices(graph, :time_period, maximum(get_prop(graph, v, :time_period) for v in vertices(graph))))
     
     # run Dijkstra's algorithm using MetaGraphs weights
-    state = Graphs.dijkstra_shortest_paths(graph, source_node, MetaGraphs.weights(graph))
+    state = Graphs.dijkstra_shortest_paths(graph, source_node, MetaGraphs.weights(working_graph))
     
     # reconstruct path
     full_path = Int[]
@@ -305,12 +315,15 @@ end
 
 function iter_search(factory, demands, ramping_data, time_periods)
 
+    total_violations = 0
+
     highest_demand = find_largest_time_period(time_periods, demands)
     largest_model = build_and_optimize_largest_period(factory, demands[highest_demand], ramping_data)
 
     loads = generate_random_loads(largest_model)
 
-    scenarios = test_scenarios(factory, demands[highest_demand], ramping_data, loads)
+    scenarios, violations = test_scenarios(factory, demands[highest_demand], ramping_data, loads)
+    total_violations += violations
 
     graph = build_initial_graph(scenarios, time_periods)
     add_weighted_edges(graph, time_periods, ramping_data)
@@ -327,7 +340,7 @@ function iter_search(factory, demands, ramping_data, time_periods)
 
     iteration = 1
     converged = false
-    max_iterations = 10
+    max_iterations = 50
     convergence_threshold = 0.01
 
     while !converged && iteration < max_iterations
@@ -347,8 +360,9 @@ function iter_search(factory, demands, ramping_data, time_periods)
         end
 
         for i in 1:time_periods
-            loads_for_period = generate_new_loads(generator_values[i])
-            tested_loads = test_scenarios(factory, demands[i], ramping_data, loads_for_period)
+            loads_for_period = generate_new_loads(generator_values[i], iteration)
+            tested_loads, period_violations = test_scenarios(factory, demands[i], ramping_data, loads_for_period)
+            total_violations += period_violations
             new_feasible_values[i] =  tested_loads
         end
         # new_feasible_values[1][1][1] = value Dict, [1][1][2] = total gen cost
@@ -376,7 +390,8 @@ function iter_search(factory, demands, ramping_data, time_periods)
 
 
     display(cost_history)
-    return best_graph, best_path, best_cost, best_solution, cost_history
+    println(total_violations)
+    return best_graph, best_path, best_cost, best_solution, cost_history, total_violations
 
 end
 
