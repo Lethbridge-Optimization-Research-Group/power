@@ -105,7 +105,8 @@ end
 
 function test_scenarios(factory, demand, ramping_data, random_scenarios)
     total_violations = 0
-
+    #TODO: Generalize, calculate cost manually, avoid querying model when possible to make 
+    # solver agnostic
     feasible_scenarios = []
     minimum_demand = sum(values(demand))
     for scenario in random_scenarios
@@ -116,7 +117,7 @@ function test_scenarios(factory, demand, ramping_data, random_scenarios)
                 println("Skipping infeasible scenario")
                 continue  # Skip extracting values from an infeasible model
             end
-            if (sum(value.(model.model[:pg])) < minimum_demand)
+            if (sum(value.(model.model[:pg])) < minimum_demand) # TODO: move to before creating model
                 println("Demand not met, skipping scenario")
                 continue # Skip if demand is not met
             end
@@ -219,11 +220,11 @@ function shortest_path(graph)
     end
 
     # find the source node and sink nodes
-    source_node = first(filter_vertices(graph, :time_period, 0))
-    sink_node = first(filter_vertices(graph, :time_period, maximum(get_prop(graph, v, :time_period) for v in vertices(graph))))
+    source_node = first(filter_vertices(working_graph, :time_period, 0))
+    sink_node = first(filter_vertices(working_graph, :time_period, maximum(get_prop(working_graph, v, :time_period) for v in vertices(working_graph))))
     
     # run Dijkstra's algorithm using MetaGraphs weights
-    state = Graphs.dijkstra_shortest_paths(graph, source_node, MetaGraphs.weights(working_graph))
+    state = Graphs.dijkstra_shortest_paths(working_graph, source_node, MetaGraphs.weights(working_graph))
     
     # reconstruct path
     full_path = Int[]
@@ -239,17 +240,28 @@ function shortest_path(graph)
     # reverse path
     reverse!(full_path)
     
-    # calculate cost
+    # calculate the total cost
     total_cost = 0.0
+    generation_cost = 0.0
+    ramping_cost = 0.0
     for i in 1:(length(full_path)-1)
         src_node = full_path[i]
         dst_node = full_path[i+1]
         if has_edge(graph, src_node, dst_node)
             total_cost += get_prop(graph, src_node, dst_node, :weight) + get_prop(graph, src_node, :cost)
+            generation_cost += get_prop(graph, src_node, :cost)
+            ramping_cost += get_prop(graph, src_node, dst_node, :weight) 
         end
     end
+
+    # calculate the costs of ramping and generation
     
-    return full_path, total_cost
+    return Dict(
+        :path => full_path,
+        :total_cost => total_cost,
+        :generation_cost => generation_cost,
+        :ramping_cost => ramping_cost
+    )
 end
 
 function extract_solution(graph, path)
@@ -328,11 +340,11 @@ function iter_search(factory, demands, ramping_data, time_periods)
     graph = build_initial_graph(scenarios, time_periods)
     add_weighted_edges(graph, time_periods, ramping_data)
 
-    path, cost = shortest_path(graph)
+    path_results = shortest_path(graph)
     
     best_graph = graph
-    best_path = path[2:end - 1]
-    best_cost = cost
+    best_path = path_results[:path][2:end - 1]
+    best_cost = path_results[:total_cost]
     best_solution = extract_solution(best_graph, best_path)
 
     cost_history = Vector{Float64}()
@@ -342,6 +354,9 @@ function iter_search(factory, demands, ramping_data, time_periods)
     converged = false
     max_iterations = 50
     convergence_threshold = 0.01
+
+    generation_cost = 0.0
+    ramping_cost = 0.0
 
     while !converged && iteration < max_iterations
         generator_values = Vector{Dict{Int64, Float64}}()
@@ -370,18 +385,20 @@ function iter_search(factory, demands, ramping_data, time_periods)
         new_graph = build_new_graph(new_feasible_values, time_periods)
         add_weighted_edges(new_graph, time_periods, ramping_data)
 
-        new_path, new_cost = shortest_path(new_graph)
+        path_results = shortest_path(new_graph)
         #=
         if abs(new_cost - best_cost) < 0.01
             println("Converged on $best_cost")
             converged = true
         end
         =#
-        if new_cost < best_cost
+        if path_results[:total_cost] < best_cost
             best_graph = new_graph
-            best_cost = new_cost
-            best_path = new_path
+            best_cost = path_results[:total_cost]
+            best_path = path_results[:path]
             best_solution = extract_solution(best_graph, best_path)
+            generation_cost = path_results[:generation_cost]
+            ramping_cost = path_results[:ramping_cost]
         end
         push!(cost_history, best_cost)
         iteration += 1
@@ -389,10 +406,20 @@ function iter_search(factory, demands, ramping_data, time_periods)
     end
 
 
-    display(cost_history)
-    println(total_violations)
-    return best_graph, best_path, best_cost, best_solution, cost_history, total_violations
+    println("Total violations: ", total_violations)
 
+    info = Dict(
+        :graph => best_graph,
+        :path => best_path,
+        :cost => best_cost,
+        :solution => best_solution,
+        :cost_history => cost_history,
+        :total_violations => total_violations,
+        :generation_cost => generation_cost,
+        :ramping_cost => ramping_cost
+    )
+
+    return info
 end
 
 
@@ -509,4 +536,19 @@ function print_path_details(graph, path)
         end
     end
     println("Total Path Cost: ", total_cost + total_edge_weight)
+end
+
+function get_generation_and_ramping_costs(info, model)
+
+    graph_model_generation_cost = info[:generation_cost]
+    graph_model_ramping_cost = info[:ramping_cost]
+    search_model_generation_cost = sum(value.(model.model[:generation_cost]))
+    search_model_ramping_cost = sum(value.(model.model[:ramping_cost]))
+
+    return Dict(
+        :graph_model_generation_cost => graph_model_generation_cost,
+        :graph_model_ramping_cost => graph_model_ramping_cost,
+        :search_model_generation_cost => search_model_generation_cost,
+        :search_model_ramping_cost => search_model_ramping_cost
+    )
 end

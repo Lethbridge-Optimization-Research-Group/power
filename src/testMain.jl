@@ -9,7 +9,7 @@ include("search_functions.jl")
 matpower_file_path = "./Cases/case14.m"
 #matpower_file_path = "./Cases/case300.m"
 #matpower_file_path = "./Cases/case1354pegase.m"
-#matpower_file_path = "./Cases/case9241pegase.m"
+
 output_dir = "./Cases"
 data = PowerModels.parse_file(matpower_file_path)
 PowerModels.standardize_cost_terms!(data, order=2)
@@ -26,7 +26,8 @@ PowerModels.calc_thermal_limits!(data)
     #TODO: Compare ramping and Pg of search model to the optimal model
     #TODO: Check pmax and pmin before testing feasibility 
         # virtually 0% of failed cases are due to pmin / pmax violation
-#TODO: Count how many of the infeasible scenarios are due to pmin/pmax violations
+    #TODO: Count how many of the infeasible scenarios are due to pmin/pmax violations
+        # Done
 #TODO: OR generate values inside of pmax/pmin and compare graphs
 #TODO: Increase ramping cost and compare to optimal
     #TODO: Parellelization (generate shortest path, test each node in parallel)
@@ -46,22 +47,23 @@ differences = Float64[]
     ramping_data, demands = parse_power_system_csv(ramping_csv_file, matpower_file_path)
 
     search_factory = DCMPOPFSearchFactory(matpower_file_path, Gurobi.Optimizer)
-    search_model = create_search_model(search_factory, 5, ramping_data, demands)
+    search_model = create_search_model(search_factory, 10, ramping_data, demands)
     opt_start = time()
     optimize!(search_model.model)
     opt_stop = time()
     println(opt_stop - opt_start, " seconds")
 
     search_start = time()
-    graph, full_path, total_cost, solution, cost_history, total_violations = iter_search(search_factory, demands, ramping_data, 5)
+    info = iter_search(search_factory, demands, ramping_data, 10)
     search_stop = time()
     println()
 
     opt = objective_value(search_model.model)
-    diff = total_cost / opt
+    diff = info[:cost] / opt
     push!(differences, diff)
 #end
-
+println("Seconds: ", search_stop - search_start)
+println("Difference: ", info[:cost] / opt)
 #println(sum(differences) / 10)
 #largest = find_largest_time_period(12, demands)
 #largest_model = build_and_optimize_largest_period(search_factory, demands[largest], ramping_data)
@@ -120,3 +122,5 @@ data["gen"]["5"]["pg"] = 0.0198465
 
 # annotate!(x, y, Plots.text("$x, $y", :red, :right, 10))
 =#
+
+test = get_generation_and_ramping_costs(info, search_model)
