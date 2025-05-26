@@ -288,7 +288,7 @@ function shortest_path(graph)
         end
     end
 
-    # calculate the costs of ramping and generation
+    
     
     return Dict(
         :path => full_path,
@@ -386,7 +386,7 @@ function iter_search(data, factory, demands, ramping_data, time_periods)
 
     iteration = 1
     converged = false
-    max_iterations = 50
+    max_iterations = 10
     convergence_threshold = 0.01
 
     generation_cost = 0.0

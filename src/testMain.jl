@@ -3,12 +3,13 @@ using PowerModels
 using MPOPF
 using Statistics, Plots, GraphRecipes
 
-include("graph_search.jl")
+#include("graph_search.jl")
+include("graph_search2.jl")
 include("search_functions.jl")
 
-matpower_file_path = "./Cases/case14.m"
 #matpower_file_path = "./Cases/case300.m"
-#matpower_file_path = "./Cases/case1354pegase.m"
+#matpower_file_path = "./Cases/case300.m"
+matpower_file_path = "./Cases/case9241pegase.m"
 
 output_dir = "./Cases"
 data = PowerModels.parse_file(matpower_file_path)
@@ -43,17 +44,17 @@ PowerModels.calc_thermal_limits!(data)
 differences = Float64[]
 #for i in 1:1 =#
     ramping_csv_file = generate_power_system_csv(data, output_dir)
-    ramping_data, demands = parse_power_system_csv("./Cases/MPOPF_Cases/111/case14_111.csv", matpower_file_path)
+    ramping_data, demands = parse_power_system_csv(ramping_csv_file, matpower_file_path)
 
     search_factory = DCMPOPFSearchFactory(matpower_file_path, Gurobi.Optimizer)
-    search_model = create_search_model(search_factory, 10, ramping_data, demands)
+    search_model = create_search_model(search_factory, 3, ramping_data, demands)
     opt_start = time()
     optimize!(search_model.model)
     opt_stop = time()
     println(opt_stop - opt_start, " seconds")
 
     search_start = time()
-    info = iter_search(data, search_factory, demands, ramping_data, 10)
+    info = DC_graph_search(data, search_factory, demands, ramping_data, 3)
     search_stop = time()
     println()
 
