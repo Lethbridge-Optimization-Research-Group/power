@@ -69,7 +69,7 @@ function generate_new_loads(current_outputs, iteration; scenarios_to_generate = 
             if rand() >= pos_or_neg
                 random_dict[gen] = val + variation
             else
-                random_dict[gen] = val - variation
+                random_dict[gen] = max(0, val - variation)
             end
         end
         random_scenarios[i] = random_dict
@@ -103,26 +103,55 @@ function extract_power_flow_data(model)
     return Dict(zip(m.axes[2], values'))
 end
 
-function test_scenarios(factory, demand, ramping_data, random_scenarios)
+function test_scenarios(data, factory, demand, ramping_data, random_scenarios)
     total_violations = 0
+
+    #ref = PowerModels.build_ref(data)[:it][:pm][:nw][0]
+    #gen_data = ref[:gen]
     #TODO: Generalize, calculate cost manually, avoid querying model when possible to make 
     # solver agnostic
     feasible_scenarios = []
     minimum_demand = sum(values(demand))
+    #current_cost .+= gen_data[g]["cost"][1]*value^2 +
+     #                gen_data[g]["cost"][2]*value +
+      #               gen_data[g]["cost"][3]
     for scenario in random_scenarios
-            model, scenario_violations = power_flow(factory, demand, ramping_data, scenario)
-            total_violations += scenario_violations
-            status = termination_status(model.model)
-            if status != MOI.LOCALLY_SOLVED && status != MOI.OPTIMAL
-                println("Skipping infeasible scenario")
-                continue  # Skip extracting values from an infeasible model
+        
+
+        # test that minimum demand is met before testing w JuMP
+        if sum(values(scenario)) < minimum_demand
+            println("Demand not met, skipping scenario")
+            continue # Skip if demand is not met
+        end
+
+        precalculated_cost = 0.0
+        # test pmin and pmax values prior to making model, calculate cost
+        for (gen_id, value) in scenario
+            if data["gen"][string(gen_id)]["pmin"] - 0.001 <= value <= data["gen"][string(gen_id)]["pmax"]
+                println("Pmin or Pmax bounds violated, skipping scnenario")
+                continue
             end
-            if (sum(value.(model.model[:pg])) < minimum_demand) # TODO: move to before creating model
-                println("Demand not met, skipping scenario")
-                continue # Skip if demand is not met
-            end
-            values = extract_power_flow_data(model)
-            push!(feasible_scenarios, (values, objective_value(model.model)))
+            #precalculated_cost += gen_data[g]["cost"][1]*value^2 +
+             #                     gen_data[g]["cost"][2]*value +
+              #                    gen_data[g]["cost"][3]
+        end
+
+        #if precalculated_cost > current_cost # confirm that we actually want this? cheaper node does not mean
+         #   println("Scenario more expensice") # cheaper overall model
+          #  continue
+        #end
+
+        model, scenario_violations = power_flow(factory, demand, ramping_data, scenario)
+        total_violations += scenario_violations
+        status = termination_status(model.model)
+
+        if status != MOI.LOCALLY_SOLVED && status != MOI.OPTIMAL
+            println("Skipping infeasible scenario")
+            continue  # Skip extracting values from an infeasible model
+        end
+
+        pf_values = extract_power_flow_data(model)
+        push!(feasible_scenarios, (pf_values, objective_value(model.model)))
     end
     return feasible_scenarios, total_violations
 end
@@ -226,6 +255,11 @@ function shortest_path(graph)
     # run Dijkstra's algorithm using MetaGraphs weights
     state = Graphs.dijkstra_shortest_paths(working_graph, source_node, MetaGraphs.weights(working_graph))
     
+    # Check if path exists - if sink_node is unreachable, return false
+    if state.parents[sink_node] == 0 && sink_node != source_node
+        return false
+    end
+
     # reconstruct path
     full_path = Int[]
     current = sink_node
@@ -325,7 +359,7 @@ function build_new_graph(new_scenarios, time_periods)
 end
 
 
-function iter_search(factory, demands, ramping_data, time_periods)
+function iter_search(data, factory, demands, ramping_data, time_periods)
 
     total_violations = 0
 
@@ -334,7 +368,7 @@ function iter_search(factory, demands, ramping_data, time_periods)
 
     loads = generate_random_loads(largest_model)
 
-    scenarios, violations = test_scenarios(factory, demands[highest_demand], ramping_data, loads)
+    scenarios, violations = test_scenarios(data, factory, demands[highest_demand], ramping_data, loads)
     total_violations += violations
 
     graph = build_initial_graph(scenarios, time_periods)
@@ -376,7 +410,7 @@ function iter_search(factory, demands, ramping_data, time_periods)
 
         for i in 1:time_periods
             loads_for_period = generate_new_loads(generator_values[i], iteration)
-            tested_loads, period_violations = test_scenarios(factory, demands[i], ramping_data, loads_for_period)
+            tested_loads, period_violations = test_scenarios(data, factory, demands[i], ramping_data, loads_for_period)
             total_violations += period_violations
             new_feasible_values[i] =  tested_loads
         end
@@ -386,6 +420,10 @@ function iter_search(factory, demands, ramping_data, time_periods)
         add_weighted_edges(new_graph, time_periods, ramping_data)
 
         path_results = shortest_path(new_graph)
+        if path_results == false
+            println("No path found, continuing search")
+            continue
+        end
         #=
         if abs(new_cost - best_cost) < 0.01
             println("Converged on $best_cost")
@@ -420,6 +458,17 @@ function iter_search(factory, demands, ramping_data, time_periods)
     )
 
     return info
+end
+
+function iter_search_post_path(data, factory, demands, ramping_data, time_periods)
+
+    highest_demand = find_largest_time_period(time_periods, demands)
+    largest_model = build_and_optimize_largest_period(factory, demands[highest_demand], ramping_data)
+
+    loads = generate_random_loads(largest_model)
+
+    
+    return
 end
 
 
@@ -538,12 +587,31 @@ function print_path_details(graph, path)
     println("Total Path Cost: ", total_cost + total_edge_weight)
 end
 
-function get_generation_and_ramping_costs(info, model)
+function get_generation_and_ramping_costs(data, info, model)
 
     graph_model_generation_cost = info[:generation_cost]
     graph_model_ramping_cost = info[:ramping_cost]
-    search_model_generation_cost = sum(value.(model.model[:generation_cost]))
-    search_model_ramping_cost = sum(value.(model.model[:ramping_cost]))
+    search_model_generation_cost = 0.0
+    search_model_ramping_cost = 0.0
+
+    ref = PowerModels.build_ref(data)[:it][:pm][:nw][0]
+    gen_data = ref[:gen]
+    T = model.time_periods
+    ramping_data = model.ramping_data
+
+    # sum total generation costs
+    for t in 1:T, g in keys(gen_data)
+        search_model_generation_cost += 
+            gen_data[g]["cost"][1]*value(model.model[:pg][t,g])^2 +
+            gen_data[g]["cost"][2]*value(model.model[:pg][t,g]) +
+            gen_data[g]["cost"][3]
+    end
+
+    # sum total ramping costs
+    for t in 2:T, g in keys(gen_data)
+        search_model_ramping_cost +=
+            ramping_data["costs"][g] * (value(model.model[:ramp_up][t,g]) + value(model.model[:ramp_down][t, g]))
+    end
 
     return Dict(
         :graph_model_generation_cost => graph_model_generation_cost,
@@ -551,4 +619,18 @@ function get_generation_and_ramping_costs(info, model)
         :search_model_generation_cost => search_model_generation_cost,
         :search_model_ramping_cost => search_model_ramping_cost
     )
+end
+
+function save_results(graph_results, search_model, file_path)
+
+    # Create CSV content
+    csv_content = IOBuffer()
+    println(csv_content, "Results for $file_path")
+    println(csv_content, "Optimal Model Info")
+    println(csv_content, "#Time", ",$time")
+    println(csv_content, "#Objective Value", ",$objective_value")
+    println(csv_content, "gen_id", "value")
+    # add info for search model generators
+    println(csv_content, "")
+
 end

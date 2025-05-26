@@ -15,7 +15,6 @@ data = PowerModels.parse_file(matpower_file_path)
 PowerModels.standardize_cost_terms!(data, order=2)
 PowerModels.calc_thermal_limits!(data)
 
-#TODO: if stuck in local minima, make larger change / restart, etc
 #TODO: Try and reuse models 
 #TODO: Tweak search parameters, adjust variation
 #TODO: See if we can use powermodels for PF 
@@ -44,7 +43,7 @@ PowerModels.calc_thermal_limits!(data)
 differences = Float64[]
 #for i in 1:1 =#
     ramping_csv_file = generate_power_system_csv(data, output_dir)
-    ramping_data, demands = parse_power_system_csv(ramping_csv_file, matpower_file_path)
+    ramping_data, demands = parse_power_system_csv("./Cases/MPOPF_Cases/111/case14_111.csv", matpower_file_path)
 
     search_factory = DCMPOPFSearchFactory(matpower_file_path, Gurobi.Optimizer)
     search_model = create_search_model(search_factory, 10, ramping_data, demands)
@@ -54,16 +53,16 @@ differences = Float64[]
     println(opt_stop - opt_start, " seconds")
 
     search_start = time()
-    info = iter_search(search_factory, demands, ramping_data, 10)
+    info = iter_search(data, search_factory, demands, ramping_data, 10)
     search_stop = time()
     println()
 
     opt = objective_value(search_model.model)
     diff = info[:cost] / opt
     push!(differences, diff)
-#end
+#end 
 println("Seconds: ", search_stop - search_start)
-println("Difference: ", info[:cost] / opt)
+println("Difference: ", info[:cost] / opt) 
 #println(sum(differences) / 10)
 #largest = find_largest_time_period(12, demands)
 #largest_model = build_and_optimize_largest_period(search_factory, demands[largest], ramping_data)
@@ -119,8 +118,6 @@ data["gen"]["4"]["pg"] = 0.0203327
 data["gen"]["5"]["pg"] = 0.0198465
 
 #test_model = PowerModels.solve_pf(data, DCPPowerModel, Gurobi.Optimizer)
-
-# annotate!(x, y, Plots.text("$x, $y", :red, :right, 10))
 =#
 
-test = get_generation_and_ramping_costs(info, search_model)
+#test = get_generation_and_ramping_costs(info, search_model)
