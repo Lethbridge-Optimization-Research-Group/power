@@ -36,12 +36,6 @@ module MPOPF
     # Export of compute_and_save_feasibility.jl
     export compute_and_save_feasibility, load_and_graph_results, load_and_compile_results, calculate_model_averages, find_infeasible_constraints, find_bound_violations, load_and_compile_models
 
-    # Export of search_functions.jl
-    export create_initial_feasible_solution, check_solution, adjust_to_meet_demand, apply_ramping_constraints, optimize_solution, calculate_total_cost,
-    is_feasible_solution, decomposed_mpopf_local_search, decomposed_mpopf_demand_search, check_ramping_limits, check_demands_met, check_demands_met_output,
-    sort_time_periods_by_demand, adjust_adjacent_periods, create_decomposed_mpopf_model, create_initial_random_solution, generate_bounded_random_solution, 
-    adjust_solution_for_constraints, verify_solution_feasibility, find_largest_time_period, optimize_largest_period, set_all_values_to_largest
-
     # Export of rampingCSVimplementation.jl
     export safe_parse_float, parse_power_system_csv, generate_power_system_csv
 
@@ -254,8 +248,6 @@ module MPOPF
     include("misc.jl")
     include("graphing_feasibility.jl")
     include("compute_and_save_feasibility.jl")
-    include("search_functions.jl")
-    include("search2.jl")
     include("rampingCSVimplementation.jl")
 
     # The first create_model fucntion creates a PowerFlowModel object

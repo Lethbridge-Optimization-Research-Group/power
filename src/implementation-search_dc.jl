@@ -12,8 +12,8 @@ function set_model_variables!(power_flow_model::AbstractMPOPFModel, factory::DCM
     @variable(model, 0 <= ramp_up[t in 2:T, g in keys(gen_data)] <= ramp_data[g])
     @variable(model, 0 <= ramp_down[t in 2:T, g in keys(gen_data)] <= ramp_data[g])
 
-    @variable(model, generation_cost[t in 1:T, g in keys(gen_data)] >= 0)
-    @variable(model, ramping_cost[t in 2:T, g in keys(gen_data)] >= 0)
+    #@variable(model, generation_cost[t in 1:T, g in keys(gen_data)] >= 0)
+    #@variable(model, ramping_cost[t in 2:T, g in keys(gen_data)] >= 0)
 end
 
 function set_model_objective_function!(power_flow_model::AbstractMPOPFModel, factory::DCMPOPFSearchFactory)
@@ -46,9 +46,9 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::D
     demands = power_flow_model.demands
     ramp_up = model[:ramp_up]
     ramp_down = model[:ramp_down]
-    generation_cost = model[:generation_cost]
-    ramping_cost = model[:ramping_cost]
-
+    #generation_cost = model[:generation_cost]
+    #ramping_cost = model[:ramping_cost]
+#=
     for t in 1:T, g in keys(ref[:gen])
         @constraint(model, generation_cost[t,g] ==
             ref[:gen][g]["cost"][1]*pg[t,g]^2 +
@@ -60,7 +60,7 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::D
         @constraint(model, ramping_cost[t,g] ==
             ramping_data["costs"][g] * (ramp_up[t, g] + ramp_down[t, g]))
     end
-
+=#
     # We no longer need bus_ids and bus_index_to_position, as demands will be indexed by actual bus IDs
     p_expr = Dict(t => Dict() for t in 1:T)
 

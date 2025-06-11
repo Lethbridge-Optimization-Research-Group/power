@@ -1,5 +1,404 @@
 using Graphs, MetaGraphs
 
+"""
+    DC_graph_search(data, factory, demands, ramping_data, time_periods)
+
+Create a DC graph model that iteratively adjusts generator values 
+in order to form a solution.
+
+# Arguments
+- 'data::Dict{String, Any}' : Powermodels parsed Matpower case data
+- 'factory::DCMPOPFSearchFactory' : Model factory for creating JuMP OPF models
+- 'demands::Vector{Dict{Int64, Float64}}' : Demands for each time period
+- 'ramping_data::Dict{String, Any}' : Ramping costs and limits for each generator
+- 'time_periods::Int' : Number of time periods 
+
+# Returns 
+- 'info::Dict{Symbol, Any}' : Model info and associated data
+Access with info[:parameter]
+:time
+:graph
+:path
+:cost
+:solution
+:cost_history
+:violations
+:generation_cost
+:ramping_cost
+"""
+
+function DC_graph_search(data, factory, demands, ramping_data, time_periods)
+
+    start_time = time()
+
+    violations = Dict(
+        :min_demand_not_met => 0,
+        :pmin_pmax_out_of_bounds => 0,
+        :infeasible_model => 0
+    )
+
+    highest_demand = find_largest_time_period(time_periods, demands)
+    largest_model = build_and_optimize_largest_period(factory, demands[highest_demand], ramping_data)
+    status = termination_status(largest_model.model)
+    println(status)
+    if status != MOI.LOCALLY_SOLVED && status != MOI.OPTIMAL 
+        error("Largest time period infeasible")
+    end
+
+    loads = generate_random_loads(largest_model)
+    #TODO: Maintain/save initial solution and ensure we return the base solution if no
+    #other solutions are found
+    scenarios, scenario_violations = test_scenarios(data, factory, demands[highest_demand], ramping_data, loads)
+    violations[:min_demand_not_met] += scenario_violations[:min_demand_not_met]
+    violations[:pmin_pmax_out_of_bounds] += scenario_violations[:pmin_pmax_out_of_bounds]
+
+    graph = build_initial_graph(scenarios, time_periods)
+    add_weighted_edges!(graph, time_periods, ramping_data)
+
+    feasibility = false
+    path = nothing
+    while !feasibility
+
+        path = shortest_path(graph, time_periods)
+
+        if path == false || path === nothing
+            error("No feasible path found in the graph. The problem may be infeasible.")
+        end
+
+        infeasible_nodes = test_feasibility(factory, path, graph, demands, ramping_data)
+        violations[:infeasible_model] += length(infeasible_nodes)
+
+        if isempty(infeasible_nodes) 
+            feasibility = true
+        else
+            # Remove infeasible nodes and rebuild connections
+            for node in sort(infeasible_nodes, rev=true)  # Remove in reverse order to maintain indices
+                rem_vertex!(graph, node)
+            end
+            # Need to rebuild edges after removing vertices
+            add_weighted_edges!(graph, time_periods, ramping_data)
+        end
+    end
+
+    path_results = calculate_path_cost(path, graph)
+    
+    best_graph = graph
+    best_path = path
+    best_cost = path_results[:total_cost]
+    best_solution = extract_solution(best_graph, best_path)
+
+    cost_history = Vector{Float64}()
+    push!(cost_history, best_cost)
+
+    iteration = 1
+    converged = false
+    max_iterations = 50
+    convergence_threshold = 0.01
+
+    generation_cost = 0.0
+    ramping_cost = 0.0
+
+    while iteration < max_iterations
+
+        current_generator_values = Vector{Dict{Int64, Float64}}()
+        new_generator_values = Vector{Vector{Any}}()
+
+        for i in 1:time_periods
+            time_period_values = Dict()
+            for (gen_id, val) in best_solution[i][:generator_values]
+                time_period_values[gen_id] = val
+            end
+            push!(current_generator_values, time_period_values)
+            push!(new_generator_values, Vector{Any}())
+        end
+
+        for i in 1:time_periods
+            scenarios_for_period = generate_new_scenarios(current_generator_values[i], iteration)
+            tested_scenarios, scenario_violations = test_scenarios(data, factory, demands[i], ramping_data, scenarios_for_period)
+            violations[:min_demand_not_met] += scenario_violations[:min_demand_not_met]
+            violations[:pmin_pmax_out_of_bounds] += scenario_violations[:pmin_pmax_out_of_bounds]
+            new_generator_values[i] = tested_scenarios
+        end
+
+        new_graph = build_new_graph(new_generator_values, time_periods)
+        add_weighted_edges!(new_graph, time_periods, ramping_data)
+
+        feasibility = false
+
+        while !feasibility
+
+            path = shortest_path(new_graph, time_periods)
+
+            if path == false || path === nothing
+                error("No feasible path found in the graph. The problem may be infeasible.")
+            end
+
+            infeasible_nodes = test_feasibility(factory, path, new_graph, demands, ramping_data)
+            violations[:infeasible_model] += length(infeasible_nodes)
+
+            if isempty(infeasible_nodes) 
+                feasibility = true
+            else
+                for node in infeasible_nodes
+                    rem_vertex!(new_graph, node)
+                end
+            end
+        end
+        
+        path_results = calculate_path_cost(path, new_graph)
+
+        if path_results[:total_cost] < best_cost
+            best_graph = new_graph
+            best_cost = path_results[:total_cost]
+            best_path = path
+            best_solution = extract_solution(best_graph, best_path)
+            generation_cost = path_results[:generation_cost]
+            ramping_cost = path_results[:ramping_cost]
+        end
+
+        push!(cost_history, best_cost)
+        iteration += 1
+    end
+
+    info = Dict(
+        :graph => best_graph,
+        :path => best_path,
+        :cost => best_cost,
+        :solution => best_solution,
+        :cost_history => cost_history,
+        :violations => violations,
+        :generation_cost => generation_cost,
+        :ramping_cost => ramping_cost,
+        :time => time() - start_time
+    )
+
+    return info
+end
+
+"""
+    shortest_path(graph, time_periods)
+
+Find the shortest path from the source node to the sink node in the graph,
+taking into account node costs and edge weights.
+
+# Arguments
+- `graph::MetaDiGraph{Int64, Float64}` : The graph representing generator scenarios and transitions
+- `time_periods::Int` : The total number of time periods
+
+# Returns
+- `Vector{Int}` : A list of node indices representing the path, or `false` if none exists
+"""
+
+function shortest_path(graph, time_periods)
+
+    working_graph = deepcopy(graph)
+
+    for e in edges(working_graph)
+        src = Graphs.src(e)
+        dst = Graphs.dst(e)
+        current_weight = get_prop(working_graph, src, dst, :weight)
+        node_cost = get_prop(working_graph, src, :cost)
+        set_prop!(working_graph, src, dst, :weight, current_weight + node_cost)
+    end
+
+    # find the source node and sink nodes
+    source_node = 1
+    sink_node = first(filter_vertices(working_graph, :time_period, time_periods + 1))
+
+    state = Graphs.dijkstra_shortest_paths(working_graph, source_node, MetaGraphs.weights(working_graph))
+
+    if state.parents[sink_node] == 0 && sink_node != source_node
+        return false
+    end
+
+    path = Int[]
+    current = sink_node
+
+    while current != source_node
+        push!(path, current)
+        current = state.parents[current]
+    end
+    push!(path, source_node)
+
+    reverse!(path)
+
+    return path
+end
+
+"""
+    test_feasibility(factory, path, graph, demands, ramping_data)
+
+Test the feasibility of each node in a path by solving a power flow model.
+
+# Arguments
+- `factory::DCMPOPFSearchFactory` : Model factory for creating JuMP OPF models
+- `path::Vector{Int}` : A path through the graph
+- `graph::MetaDiGraph{Int64, Float64}` : The graph to test against
+- `demands::Vector{Dict{Int64, Float64}}` : Time-varying demand values
+- `ramping_data::Dict{String, Any}` : Ramping constraints and costs
+
+# Returns
+- `Vector{Int}` : List of infeasible node indices in the path
+"""
+
+
+function test_feasibility(factory, path, graph, demands, ramping_data)
+    
+    infeasible_nodes = []
+
+
+
+    for node in path[2:end-1]
+        time_period = get_prop(graph, node, :time_period)
+        generator_values = get_prop(graph, node, :generator_values)
+
+        model = create_search_model(factory, 1, ramping_data, [demands[time_period]])
+        #set_optimizer_attribute(model.model, "LogToConsole", Float64(0))
+
+        for (gen_id, value) in generator_values
+            fix(model.model[:pg][1, gen_id], value, force=true)
+        end
+
+        optimize!(model.model)
+        status = termination_status(model.model)
+
+        if status != MOI.LOCALLY_SOLVED && status != MOI.OPTIMAL
+            push!(infeasible_nodes, node)
+            continue
+        end
+
+        set_prop!(graph, node, :cost, objective_value(model.model))
+
+    end
+
+    return infeasible_nodes
+end
+
+"""
+    calculate_path_cost(path, graph)
+
+Calculate the total generation and ramping cost of a path in the graph.
+
+# Arguments
+- `path::Vector{Int}` : Path of node indices
+- `graph::MetaDiGraph{Int64, Float64}` : The graph from which to extract costs
+
+# Returns
+- `Dict{Symbol, Float64}` : Total, generation, and ramping costs
+"""
+
+function calculate_path_cost(path, graph) 
+
+    total_cost = 0.0
+    generation_cost = 0.0
+    ramping_cost = 0.0
+
+    for i in 1:(length(path)-1)
+        src_node = path[i]
+        dst_node = path[i+1]
+        
+        # Add generation cost from source node
+        if has_prop(graph, src_node, :cost)
+            node_cost = get_prop(graph, src_node, :cost)
+            generation_cost += node_cost
+            total_cost += node_cost
+        end
+        
+        # Add ramping cost from edge
+        if has_edge(graph, src_node, dst_node)
+            edge_cost = get_prop(graph, src_node, dst_node, :weight)
+            ramping_cost += edge_cost
+            total_cost += edge_cost
+        end
+    end
+    
+    return Dict(
+        :total_cost => total_cost,
+        :generation_cost => generation_cost,
+        :ramping_cost => ramping_cost
+    )
+end
+
+"""
+    test_scenarios(data, factory, demand, ramping_data, random_scenarios)
+
+Validate and cost each proposed generator scenario.
+
+# Arguments
+- `data::Dict{String, Any}` : PowerModels data
+- `factory::DCMPOPFSearchFactory` : Model factory
+- `demand::Dict{Int64, Float64}` : Demand for a specific time period
+- `ramping_data::Dict{String, Any}` : Ramping info
+- `random_scenarios::Vector{Dict{Int64, Float64}}` : Load scenarios to test
+
+# Returns
+- `Vector{Tuple{Dict{Int64, Float64}, Float64}}` : Valid scenarios and costs
+- `Dict{Symbol, Int}` : Violation counts
+"""
+
+function test_scenarios(data, factory, demand, ramping_data, random_scenarios)
+
+    violations = Dict(
+        :min_demand_not_met => 0,
+        :pmin_pmax_out_of_bounds => 0
+    )
+
+    ref = PowerModels.build_ref(data)[:it][:pm][:nw][0]
+    gen_data = ref[:gen]
+    minimum_demand = sum(values(demand))
+
+    tested_scenarios = []
+    
+    for scenario in random_scenarios
+        scenario_valid = true
+        
+        # Test that minimum demand is met
+        if sum(values(scenario)) < minimum_demand
+            println("Demand not met, skipping scenario")
+            violations[:min_demand_not_met] += 1
+            scenario_valid = false
+        end
+
+        # Test pmin and pmax values for ALL generators before proceeding
+        if scenario_valid
+            for (gen_id, value) in scenario
+                if !(data["gen"][string(gen_id)]["pmin"] - 0.001 <= value <= data["gen"][string(gen_id)]["pmax"])
+                    println("Pmin or Pmax bounds violated for generator $gen_id, skipping scenario")
+                    violations[:pmin_pmax_out_of_bounds] += 1
+                    scenario_valid = false
+                    break  # Exit the generator loop immediately
+                end
+            end
+        end
+
+        # Only calculate cost and add scenario if it's valid
+        if scenario_valid
+            calculated_cost = 0.0
+            for (gen_id, value) in scenario
+                calculated_cost += gen_data[gen_id]["cost"][1]*value^2 +
+                                   gen_data[gen_id]["cost"][2]*value +
+                                   gen_data[gen_id]["cost"][3]
+            end
+            push!(tested_scenarios, (scenario, calculated_cost))
+        end
+    end
+
+    return tested_scenarios, violations
+end
+
+"""
+    find_largest_time_period(time_periods, demands)
+
+Find the time period with the highest total demand.
+
+# Arguments
+- `time_periods::Int` : Number of periods
+- `demands::Vector{Dict{Int64, Float64}}` : Demand per time period
+
+# Returns
+- `Int` : Index of the time period with the highest demand
+"""
+
 function find_largest_time_period(time_periods, demands)
 
     largestIndex = -1
@@ -16,6 +415,20 @@ function find_largest_time_period(time_periods, demands)
     return largestIndex
 end
 
+"""
+    build_and_optimize_largest_period(factory, demand, ramping_data)
+
+Build and optimize a power flow model for the peak demand period.
+
+# Arguments
+- `factory::DCMPOPFSearchFactory` : Model factory
+- `demand::Dict{Int64, Float64}` : Peak demand
+- `ramping_data::Dict{String, Any}` : Ramping information
+
+# Returns
+- `MPOPF.MPOPFSearchModel` : Optimized JuMP model for the peak period
+"""
+
 function build_and_optimize_largest_period(factory, demand, ramping_data)
 
     model = create_search_model(factory, 1, ramping_data, [demand])
@@ -23,6 +436,22 @@ function build_and_optimize_largest_period(factory, demand, ramping_data)
 
     return model
 end
+
+"""
+    generate_random_loads(largest_model; scenarios_to_generate=15, variation_percent=1)
+
+Create randomized generator load scenarios based on an optimized model.
+
+# Arguments
+- `largest_model::MPOPF.MPOPFSearchModel` : Reference model for baseline generator outputs
+
+# Keyword Arguments
+- `scenarios_to_generate::Int` : Number of random scenarios
+- `variation_percent::Float64` : Percent variation from baseline
+
+# Returns
+- `Vector{Dict{Int64, Float64}}` : Generated scenarios
+"""
 
 function generate_random_loads(largest_model; scenarios_to_generate = 15, variation_percent = 1)
     # Extract largest values
@@ -58,7 +487,24 @@ function generate_random_loads(largest_model; scenarios_to_generate = 15, variat
     return random_scenarios
 end
 
-function generate_new_loads(current_outputs, iteration; scenarios_to_generate = 15, variation_percent = 1)
+"""
+    generate_new_scenarios(current_outputs, iteration; scenarios_to_generate=15, variation_percent=1)
+
+Generate new load scenarios based on current outputs, incorporating iteration scaling.
+
+# Arguments
+- `current_outputs::Dict{Int64, Float64}` : Current generator values
+- `iteration::Int` : Current iteration index
+
+# Keyword Arguments
+- `scenarios_to_generate::Int` : Number of scenarios to generate
+- `variation_percent::Float64` : Maximum variation percent
+
+# Returns
+- `Vector{Dict{Int64, Float64}}` : New randomized scenarios
+"""
+
+function generate_new_scenarios(current_outputs, iteration; scenarios_to_generate = 15, variation_percent = 1)
     random_scenarios = Vector{Dict{Int64, Float64}}(undef, scenarios_to_generate)
     for i in 1:scenarios_to_generate
         random_dict = Dict()
@@ -79,22 +525,17 @@ function generate_new_loads(current_outputs, iteration; scenarios_to_generate = 
     return random_scenarios
 end
 
-function power_flow(factory, demand, ramping_data, load)
-    violations_count = 0
-    model = create_search_model(factory, 1, ramping_data, [demand])
-    set_optimizer_attribute(model.model, "LogToConsole", 0)
-    for (gen_id, value) in load
-        if model.data["gen"][string(gen_id)]["pmin"] - 0.001 <= value <= model.data["gen"][string(gen_id)]["pmax"]
-            fix(model.model[:pg][1,gen_id], value, force=true)
-        else
-            violations_count += 1
-        end
-    end
-    #@objective(model.model, MOI.FEASIBILITY_SENSE, 0) # did not speed up
-    optimize!(model.model)
-    #TODO: Add a feasible flag to avoid optimizing models that violate bounds
-    return model, violations_count
-end
+"""
+    extract_power_flow_data(model)
+
+Extract generator values from a JuMP model.
+
+# Arguments
+- `model::MPOPF.MPOPFSearchModel` : The optimization model
+
+# Returns
+- `Dict{Int, Float64}` : Generator ID to output value
+"""
 
 function extract_power_flow_data(model)
     
@@ -103,58 +544,18 @@ function extract_power_flow_data(model)
     return Dict(zip(m.axes[2], values'))
 end
 
-function test_scenarios(data, factory, demand, ramping_data, random_scenarios)
-    total_violations = 0
+"""
+    build_initial_graph(scenarios, time_periods)
 
-    #ref = PowerModels.build_ref(data)[:it][:pm][:nw][0]
-    #gen_data = ref[:gen]
-    #TODO: Generalize, calculate cost manually, avoid querying model when possible to make 
-    # solver agnostic
-    feasible_scenarios = []
-    minimum_demand = sum(values(demand))
-    #current_cost .+= gen_data[g]["cost"][1]*value^2 +
-     #                gen_data[g]["cost"][2]*value +
-      #               gen_data[g]["cost"][3]
-    for scenario in random_scenarios
-        
+Construct a graph with nodes and edges based on initial generator scenarios.
 
-        # test that minimum demand is met before testing w JuMP
-        if sum(values(scenario)) < minimum_demand
-            println("Demand not met, skipping scenario")
-            continue # Skip if demand is not met
-        end
+# Arguments
+- `scenarios::Vector{Tuple{Dict{Int64, Float64}, Float64}}` : Generator values and costs
+- `time_periods::Int` : Number of time periods
 
-        precalculated_cost = 0.0
-        # test pmin and pmax values prior to making model, calculate cost
-        for (gen_id, value) in scenario
-            if data["gen"][string(gen_id)]["pmin"] - 0.001 <= value <= data["gen"][string(gen_id)]["pmax"]
-                println("Pmin or Pmax bounds violated, skipping scnenario")
-                continue
-            end
-            #precalculated_cost += gen_data[g]["cost"][1]*value^2 +
-             #                     gen_data[g]["cost"][2]*value +
-              #                    gen_data[g]["cost"][3]
-        end
-
-        #if precalculated_cost > current_cost # confirm that we actually want this? cheaper node does not mean
-         #   println("Scenario more expensice") # cheaper overall model
-          #  continue
-        #end
-
-        model, scenario_violations = power_flow(factory, demand, ramping_data, scenario)
-        total_violations += scenario_violations
-        status = termination_status(model.model)
-
-        if status != MOI.LOCALLY_SOLVED && status != MOI.OPTIMAL
-            println("Skipping infeasible scenario")
-            continue  # Skip extracting values from an infeasible model
-        end
-
-        pf_values = extract_power_flow_data(model)
-        push!(feasible_scenarios, (pf_values, objective_value(model.model)))
-    end
-    return feasible_scenarios, total_violations
-end
+# Returns
+- `MetaDiGraph{Int64, Float64}` : Graph with nodes for each scenario and period
+"""
 
 function build_initial_graph(scenarios::Vector{Any}, time_periods)
     graph = MetaDiGraph()
@@ -202,7 +603,18 @@ function build_initial_graph(scenarios::Vector{Any}, time_periods)
     return graph
 end
 
-function add_weighted_edges(graph, time_periods, ramping_data)
+"""
+    add_weighted_edges!(graph, time_periods, ramping_data)
+
+Add edges between nodes in adjacent time periods with ramping cost as weight.
+
+# Arguments
+- `graph::MetaDiGraph{int64, Float64}` : The scenario graph
+- `time_periods::Int` : Number of time periods
+- `ramping_data::Dict{String, Any}` : Ramping costs and limits
+"""
+
+function add_weighted_edges!(graph, time_periods, ramping_data)
 
     ramp_costs = ramping_data["costs"]
     ramp_limits = ramping_data["ramp_limits"]
@@ -235,70 +647,21 @@ function add_weighted_edges(graph, time_periods, ramping_data)
     end
 end
 
+"""
+    extract_solution(graph, path)
 
-function shortest_path(graph)
+Extract generator values and costs from a given path in the graph.
 
-    working_graph = deepcopy(graph)
+# Arguments
+- `graph::MetaDiGraph{Int64, Float64}` : The scenario graph
+- `path::Vector{Int}` : A feasible path through the graph
 
-    for e in edges(working_graph)
-        src = Graphs.src(e)
-        dst = Graphs.dst(e)
-        current_weight = get_prop(working_graph, src, dst, :weight)
-        node_cost = get_prop(working_graph, src, :cost)
-        set_prop!(working_graph, src, dst, :weight, current_weight + node_cost)
-    end
-
-    # find the source node and sink nodes
-    source_node = first(filter_vertices(working_graph, :time_period, 0))
-    sink_node = first(filter_vertices(working_graph, :time_period, maximum(get_prop(working_graph, v, :time_period) for v in vertices(working_graph))))
-    
-    # run Dijkstra's algorithm using MetaGraphs weights
-    state = Graphs.dijkstra_shortest_paths(working_graph, source_node, MetaGraphs.weights(working_graph))
-    
-    # Check if path exists - if sink_node is unreachable, return false
-    if state.parents[sink_node] == 0 && sink_node != source_node
-        return false
-    end
-
-    # reconstruct path
-    full_path = Int[]
-    current = sink_node
-    
-    # start from sink  and work backward to source
-    while current != source_node
-        push!(full_path, current)
-        current = state.parents[current]
-    end
-    push!(full_path, source_node)
-    
-    # reverse path
-    reverse!(full_path)
-    
-    # calculate the total cost
-    total_cost = 0.0
-    generation_cost = 0.0
-    ramping_cost = 0.0
-    for i in 1:(length(full_path)-1)
-        src_node = full_path[i]
-        dst_node = full_path[i+1]
-        if has_edge(graph, src_node, dst_node)
-            total_cost += get_prop(graph, src_node, dst_node, :weight) + get_prop(graph, src_node, :cost)
-            generation_cost += get_prop(graph, src_node, :cost)
-            ramping_cost += get_prop(graph, src_node, dst_node, :weight) 
-        end
-    end
-
-    
-    
-    return Dict(
-        :path => full_path,
-        :total_cost => total_cost,
-        :generation_cost => generation_cost,
-        :ramping_cost => ramping_cost
-    )
-end
+# Returns
+- `Dict{Int, Dict{Symbol, Any}}` : Mapping from time period to generator values and cost
+"""
 
 function extract_solution(graph, path)
+
     solution = Dict{Int, Dict{Symbol, Any}}()  # Dictionary to store node properties
 
     for node in path
@@ -311,6 +674,19 @@ function extract_solution(graph, path)
 
     return solution
 end
+
+"""
+    build_new_graph(new_scenarios, time_periods)
+
+Construct a new graph using updated generator scenarios.
+
+# Arguments
+- `new_scenarios::Vector{Vector{Tuple{Dict{Int64, Float64}, Float64}}}` : New generator data
+- `time_periods::Int` : Number of periods
+
+# Returns
+- `MetaDiGraph{Int64, Float64}` : Graph built from new scenarios
+"""
 
 function build_new_graph(new_scenarios, time_periods) 
 
@@ -358,234 +734,19 @@ function build_new_graph(new_scenarios, time_periods)
     return new_graph
 end
 
+"""
+    get_generation_and_ramping_costs(data, info, model)
 
-function iter_search(data, factory, demands, ramping_data, time_periods)
+Compare cost breakdowns between the graph model and the full optimization model.
 
-    total_violations = 0
+# Arguments
+- `data::Dict{String, Any}` : PowerModels parsed case
+- `info::Dict` : Result dictionary from DC graph search
+- `model::JuMP.Model` : Full optimized model
 
-    highest_demand = find_largest_time_period(time_periods, demands)
-    largest_model = build_and_optimize_largest_period(factory, demands[highest_demand], ramping_data)
-
-    loads = generate_random_loads(largest_model)
-
-    scenarios, violations = test_scenarios(data, factory, demands[highest_demand], ramping_data, loads)
-    total_violations += violations
-
-    graph = build_initial_graph(scenarios, time_periods)
-    add_weighted_edges(graph, time_periods, ramping_data)
-
-    path_results = shortest_path(graph)
-    
-    best_graph = graph
-    best_path = path_results[:path][2:end - 1]
-    best_cost = path_results[:total_cost]
-    best_solution = extract_solution(best_graph, best_path)
-
-    cost_history = Vector{Float64}()
-    push!(cost_history, best_cost)
-
-    iteration = 1
-    converged = false
-    max_iterations = 10
-    convergence_threshold = 0.01
-
-    generation_cost = 0.0
-    ramping_cost = 0.0
-
-    while !converged && iteration < max_iterations
-        generator_values = Vector{Dict{Int64, Float64}}()
-        for i in 1:time_periods
-            time_period_vals = Dict()
-            for (gen, val) in best_solution[i][:generator_values]
-                time_period_vals[gen] = val
-            end
-            push!(generator_values, time_period_vals)
-        end
-        # maybe combine these two loops
-        test_values = Vector{Vector{Dict{Int64, Float64}}}()
-        new_feasible_values = Vector{Vector{Any}}()
-        for i in 1:time_periods
-            push!(new_feasible_values, Vector{Any}())
-        end
-
-        for i in 1:time_periods
-            loads_for_period = generate_new_loads(generator_values[i], iteration)
-            tested_loads, period_violations = test_scenarios(data, factory, demands[i], ramping_data, loads_for_period)
-            total_violations += period_violations
-            new_feasible_values[i] =  tested_loads
-        end
-        # new_feasible_values[1][1][1] = value Dict, [1][1][2] = total gen cost
-        # run shortest path and compare values
-        new_graph = build_new_graph(new_feasible_values, time_periods)
-        add_weighted_edges(new_graph, time_periods, ramping_data)
-
-        path_results = shortest_path(new_graph)
-        if path_results == false
-            println("No path found, continuing search")
-            continue
-        end
-        #=
-        if abs(new_cost - best_cost) < 0.01
-            println("Converged on $best_cost")
-            converged = true
-        end
-        =#
-        if path_results[:total_cost] < best_cost
-            best_graph = new_graph
-            best_cost = path_results[:total_cost]
-            best_path = path_results[:path]
-            best_solution = extract_solution(best_graph, best_path)
-            generation_cost = path_results[:generation_cost]
-            ramping_cost = path_results[:ramping_cost]
-        end
-        push!(cost_history, best_cost)
-        iteration += 1
-        println("Iteration: ", iteration)
-    end
-
-
-    println("Total violations: ", total_violations)
-
-    info = Dict(
-        :graph => best_graph,
-        :path => best_path,
-        :cost => best_cost,
-        :solution => best_solution,
-        :cost_history => cost_history,
-        :total_violations => total_violations,
-        :generation_cost => generation_cost,
-        :ramping_cost => ramping_cost
-    )
-
-    return info
-end
-
-function iter_search_post_path(data, factory, demands, ramping_data, time_periods)
-
-    highest_demand = find_largest_time_period(time_periods, demands)
-    largest_model = build_and_optimize_largest_period(factory, demands[highest_demand], ramping_data)
-
-    loads = generate_random_loads(largest_model)
-
-    
-    return
-end
-
-
-function find_infeasible_constraints(model::Model)
-    #if termination_status(model) != MOI.LOCALLY_INFEASIBLE
-     #   println("The model must be optimized and locally infeasible")
-	#	return []
-    #end
-
-    infeasible_constraints = []
-    
-    for (f, s) in list_of_constraint_types(model)
-        for con in all_constraints(model, f, s)
-            func = constraint_object(con).func
-            set = constraint_object(con).set
-            constraint_value = JuMP.value(func)
-            
-            is_satisfied = false
-            if set isa MOI.EqualTo
-                is_satisfied = isapprox(constraint_value, MOI.constant(set), atol=1e-6)
-            elseif set isa MOI.LessThan
-                is_satisfied = constraint_value <= MOI.constant(set) + 1e-6
-            elseif set isa MOI.GreaterThan
-                is_satisfied = constraint_value >= MOI.constant(set) - 1e-6
-            elseif set isa MOI.Interval
-                is_satisfied = MOI.lower(set) - 1e-6 <= constraint_value <= MOI.upper(set) + 1e-6
-            else
-                @warn "Unsupported constraint type: $set"
-                continue
-            end
-            
-            if !is_satisfied
-                push!(infeasible_constraints, (con, constraint_value))
-            end
-        end
-    end
-
-    return infeasible_constraints
-end
-
-function find_bound_violations(model::Model)
-
-	# if termination_status(model) != MOI.LOCALLY_INFEASIBLE
-    #     error("The model must be optimized and locally infeasible")
-    # end
-
-	# Get the variable names
-	variable_names = all_variables(model)
-
-	violations = Dict{VariableRef, Tuple{Float64, Float64, Float64, Float64}}()
-
-	# iterate over all variables
-	for (_, var) in enumerate(variable_names)
-
-		# check if the variable has a lower and upper bound
-		if !has_lower_bound(var) || !has_upper_bound(var)
-			continue
-		end
-
-		# get the bounds and value of the variable
-		upper = upper_bound(var)
-		lower = lower_bound(var)
-		value = JuMP.value(var)
-
-		# check for violation
-		if value < lower 
-			
-			# add it to the violations dictionary
-			violations[var] = (value, lower, upper, lower - value)
-		elseif value > upper
-
-			# add it to the violations dictionary
-			violations[var] = (value, lower, upper, value - upper)
-		end
-	end
-    	# return the violations
-	return violations
-end
-
-function print_path_details(graph, path)
-    println("Path Details:")
-    println("------------")
-    
-    # Iterate through each node in the path
-    for i in 1:length(path)
-        node = path[i]
-        
-        # Print node information
-        println("Node $i: $node")
-        println("  Time Period: ", get_prop(graph, node, :time_period))
-        println("  Generator Values: ", get_prop(graph, node, :generator_values))
-        println("  Cost: ", get_prop(graph, node, :cost))
-        
-        # Print edge information (if not the last node)
-        if i < length(path)
-            next_node = path[i+1]
-            if has_edge(graph, node, next_node)
-                edge_weight = get_prop(graph, node, next_node, :weight)
-                println("  Edge to $(next_node):")
-                println("    Weight: ", edge_weight)
-            else
-                println("  No edge exists to $(next_node)")
-            end
-        end
-        println()
-    end
-    
-    # Calculate and print total path cost
-    total_cost = sum(get_prop(graph, node, :cost) for node in path)
-    total_edge_weight = 0.0
-    for i in 1:(length(path)-1)
-        if has_edge(graph, path[i], path[i+1])
-            total_edge_weight += get_prop(graph, path[i], path[i+1], :weight)
-        end
-    end
-    println("Total Path Cost: ", total_cost + total_edge_weight)
-end
+# Returns
+- `Dict{Symbol, Float64}` : Breakdown of generation and ramping costs
+"""
 
 function get_generation_and_ramping_costs(data, info, model)
 
@@ -621,16 +782,196 @@ function get_generation_and_ramping_costs(data, info, model)
     )
 end
 
-function save_results(graph_results, search_model, file_path)
+"""
+    graph_demands_and_generation(demands, full_model, graph_solution)
 
-    # Create CSV content
-    csv_content = IOBuffer()
-    println(csv_content, "Results for $file_path")
-    println(csv_content, "Optimal Model Info")
-    println(csv_content, "#Time", ",$time")
-    println(csv_content, "#Objective Value", ",$objective_value")
-    println(csv_content, "gen_id", "value")
-    # add info for search model generators
-    println(csv_content, "")
+Plot demand and generation output from both the graph model and optimal model.
 
+# Arguments
+- `demands::Vector{Dict{Int64, Float64}}` : Demand data
+- `full_model::JuMP.Model` : Optimal solution model
+- `graph_solution::Dict{Int, Dict{Symbol, Any}}` : Generator outputs from graph path
+"""
+
+function graph_demands_and_generation(demands, full_model, graph_solution)
+
+    time_periods = length(graph_solution) - 2
+    graph_outputs = []
+
+    for i in 1:time_periods
+        push!(graph_outputs, sum(values(graph_solution[i][:generator_values])))
+    end
+
+    full_model_outputs = Array(value.(full_model.model[:pg]))
+    full_model_outputs = vec(sum(full_model_outputs, dims=2))
+
+    demand_to_graph = demands[1:time_periods]
+    demand_to_graph = [sum(values(d)) for d in demand_to_graph]
+
+
+    p1 = plot(full_model_outputs, label="Optimal Model", lw=2)
+    plot!(p1, graph_outputs, label="Graph Model", lw=2)
+    plot!(p1, demand_to_graph, label="Demand", lw=2)
+    xlabel!(p1, "Time Period")
+    ylabel!(p1, "Total Generation")
+    title!(p1, "Generation vs Demand")
+    display(p1)
+
+    # Second plot
+    p2 = plot(full_model_outputs .- demand_to_graph, label="Optimal Model - Demand", lw=2)
+    plot!(p2, graph_outputs .- demand_to_graph, label="Graph Model - Demand", lw=2)
+    xlabel!(p2, "Time Period")
+    ylabel!(p2, "Difference")
+    title!(p2, "Generation Error Compared to Demand")
+    display(p2)
+
+end
+
+"""
+    output_run_data_to_csv(data, file_path, demands, model, info)
+
+Write summary and time-series data from a run to a CSV file.
+
+# Arguments
+- `data::Dict{String, Any}` : PowerModels case data
+- `file_path::String` : Path to input .m file
+- `demands::Vector{Dict{Int64, Float64}}` : Time-varying demand
+- `model::MPOPF.MPOPFModel` : Full optimization model
+- `info::Dict` : Results from DC graph search
+
+# Returns
+- `String` : Path to the output CSV file
+"""
+
+function output_run_data_to_csv(data, file_path, demands, model, info)
+    # Extract filename
+    filename = split(file_path, "/") |> last
+    time_periods = length(info[:solution]) - 2
+    
+    # Calculate pg values for graph model
+    graph_pg_values = []
+    for i in 1:time_periods
+        push!(graph_pg_values, sum(values(info[:solution][i][:generator_values])))
+    end
+    
+    # Calculate pg values for optimal model
+    optimal_model_pg_values = Array(value.(model.model[:pg]))
+    optimal_model_pg_values = vec(sum(optimal_model_pg_values, dims=2))
+    
+    # Calculate demand values
+    demand = demands[1:time_periods]
+    demand = [sum(values(d)) for d in demand]
+
+    # Calculate ramping and generation costs
+    cost_info = get_generation_and_ramping_costs(data, info, model)
+    
+    # Prepare CSV data
+    csv_data = []
+    
+    # Basic information
+    push!(csv_data, ["filename", filename])
+    push!(csv_data, ["time_periods", time_periods])
+    
+    # Graph cost information
+    push!(csv_data, ["graph_total_cost", info[:cost]])
+    push!(csv_data, ["graph_generation_cost", info[:generation_cost]])
+    push!(csv_data, ["graph_ramping_cost", info[:ramping_cost]])
+
+    # Optimal cost information
+    push!(csv_data, ["optimal_total_cost", objective_value(model.model)])
+    push!(csv_data, ["optimal_generation_cost", cost_info[:search_model_generation_cost]])
+    push!(csv_data, ["optimal_ramping_cost", cost_info[:search_model_ramping_cost]])
+    
+    # Timing information
+    push!(csv_data, ["graph_solve_time", info[:time]])
+    push!(csv_data, ["optimal_model_solve_time",solve_time(model.model)])
+    
+    # Violations information
+    violations = info[:violations]
+    push!(csv_data, ["pmin_pmax_violations", violations[:pmin_pmax_out_of_bounds]])
+    push!(csv_data, ["infeasible_model_violations", violations[:infeasible_model]])
+    push!(csv_data, ["min_demand_not_met_violations", violations[:min_demand_not_met]])
+    
+    # Graph information
+    if haskey(info, :graph)
+        graph = info[:graph]
+        # Extract graph properties (adjust based on your graph type)
+        push!(csv_data, ["graph_nodes", nv(graph)])
+        push!(csv_data, ["graph_edges", ne(graph)])
+    end
+    
+    # Path information
+    if haskey(info, :path)
+        path_str = join(info[:path], ";")  # Use semicolon to separate path elements
+        push!(csv_data, ["optimization_path", path_str])
+        push!(csv_data, ["path_length", length(info[:path])])
+    end
+    
+    # Cost history summary
+    if haskey(info, :cost_history)
+        cost_hist = info[:cost_history]
+        push!(csv_data, ["cost_history_length", length(cost_hist)])
+        push!(csv_data, ["initial_cost", cost_hist[1]])
+        push!(csv_data, ["final_cost", cost_hist[end]])
+        push!(csv_data, ["cost_improvement", cost_hist[1] - cost_hist[end]])
+    end
+    
+    # Add separator row before verbose data
+    push!(csv_data, ["--- DETAILED TIME SERIES DATA ---", ""])
+    
+    # Time series data (more verbose, at the end)
+    # Create headers for time series
+    time_headers = ["time_period_" * string(i) for i in 1:time_periods]
+    
+    # Graph model pg values
+    graph_pg_row = ["graph_pg_sums"; graph_pg_values]
+    push!(csv_data, graph_pg_row)
+    
+    # Full model pg values
+    full_model_pg_row = ["full_model_pg_sums"; optimal_model_pg_values]
+    push!(csv_data, full_model_pg_row)
+    
+    # Demand values
+    demand_row = ["demand_sums"; demand]
+    push!(csv_data, demand_row)
+    
+    # Individual generator values for each time period (if needed)
+    for i in 1:time_periods
+        gen_values = info[:solution][i][:generator_values]
+        for (gen_id, gen_value) in gen_values
+            gen_row = ["t$(i)_generator_$(gen_id)", gen_value]
+            push!(csv_data, gen_row)
+        end
+    end
+    
+    # Cost breakdown by time period
+    for i in 1:time_periods
+        if haskey(info[:solution][i], :cost)
+            cost_row = ["t$(i)_cost", info[:solution][i][:cost]]
+            push!(csv_data, cost_row)
+        end
+    end
+    
+    # Full cost history (if you want it)
+    if haskey(info, :cost_history)
+        cost_hist_row = ["full_cost_history"; info[:cost_history]]
+        push!(csv_data, cost_hist_row)
+    end
+    
+    # Write to CSV
+    csv_filename = replace(filename, ".m" => "_results.csv")
+
+    
+    # Convert to DataFrame for easier CSV writing
+    # Since rows have different lengths, we'll write manually
+    open(csv_filename, "w") do io
+        for row in csv_data
+            # Convert all elements to strings and join with commas
+            row_str = join([string(x) for x in row], ",")
+            println(io, row_str)
+        end
+    end
+    
+    println("Results written to: $csv_filename")
+    return csv_filename
 end
