@@ -38,7 +38,9 @@ function parse_power_system_csv(file_path::String, matpower_file_path::String)
     ramping_data["costs"] = Dict{Int,Float64}()
     
     # Convert ramp limits and costs to dictionaries indexed by gen_id
-    for i in 1:length(ramping_data["gen_id"])
+    num_of_gens = length(ramping_data["gen_id"])
+
+    for i in 1:num_of_gens
         gen_id = Int(ramping_data["gen_id"][i])
         ramping_data["ramp_limits"][gen_id] = safe_parse_float(gen_data[i+1, 2])
         ramping_data["costs"][gen_id] = safe_parse_float(gen_data[i+1, 3])
@@ -50,8 +52,9 @@ function parse_power_system_csv(file_path::String, matpower_file_path::String)
     # Extract actual bus IDs from the first column
     bus_ids = [parse(Int, x) for x in bus_data[!, 1] if x != "bus_id" && !ismissing(x)]
     
+    columns = size(bus_data, 2)
     # Process demand data for each time period
-    for t in 2:size(bus_data, 2)  # Start from column 2 (first time period)
+    for t in 2:columns  # Start from column 2 (first time period)
         period_demands = Dict{Int,Float64}()
         for (idx, bus_id) in enumerate(bus_ids)
             # Get the demand value, default to 0.0 if missing
