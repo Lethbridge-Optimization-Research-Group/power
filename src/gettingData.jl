@@ -6,7 +6,7 @@ using DataFrames
 using PowerModels
 const PM = PowerModels
 
-folder = "/home/prottasha-dcruze/UniversityProjects/OpticalPowerFlow/power/Cases/test"
+folder = "power/Cases/test"
 
 for file in readdir(folder)
     file_path = joinpath(folder, file)
