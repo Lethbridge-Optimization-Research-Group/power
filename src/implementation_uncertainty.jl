@@ -84,6 +84,211 @@ function return_loads(file_path)
 end
 
 """
+    generate_correlated_scenarios(file_path::String, num_scenarios::Int64, variation_value::Float64=0.15)
+
+Generate correlated load scenarios using Cholesky decomposition.
+
+# Arguments
+- `file_path::String`: Path to the case file
+- `num_scenarios::Int64`: Number of scenarios to generate
+- `variation_value::Float64`: Variation value for the standard deviation
+
+# Returns
+- Dictionary of scenarios with correlated load values
+"""
+function generate_correlated_scenarios(file_path::String, num_scenarios::Int64, variation_value::Float64=0.15)
+    # Get base loads
+    base_loads = return_loads(file_path)
+    num_loads = length(base_loads)
+    
+    # Create base correlation matrix (example correlation structure)
+    correlation_matrix = zeros(num_loads, num_loads)
+    for i in 1:num_loads
+        for j in 1:num_loads
+            if i == j
+                correlation_matrix[i,j] = 1.0
+            else
+                # Example: Correlation decreases with distance between load indices
+                correlation_matrix[i,j] = 0.5^(abs(i-j))
+            end
+        end
+    end
+    
+    # Convert correlation to covariance matrix
+    stds = variation_value .* collect(values(base_loads))
+    covariance_matrix = correlation_matrix .* (stds * stds')
+
+    # Clamp negative values to 0 and ensure diagonal dominance
+    covariance_matrix = max.(covariance_matrix, 0)
+
+    # # Add small positive values to diagonal for stability
+    for i in 1:num_loads
+        covariance_matrix[i,i] += 1e-10
+    end
+    
+    # Compute Cholesky decomposition
+    c = cholesky(Symmetric(covariance_matrix)).L
+    
+    # Generate independent normal samples
+    x = randn(num_loads, num_scenarios)
+    
+    # Convert to correlated samples
+    y = c * x
+    
+    # Create scenarios dictionary
+    scenarios = Dict()
+    load_ids = collect(keys(base_loads))
+    
+    for s in 1:num_scenarios
+        scenarios[s] = Dict()
+        for (idx, load_id) in enumerate(load_ids)
+            # Add mean (base load) to the correlated variation
+            scenarios[s][load_id] = base_loads[load_id] + y[idx,s]
+        end
+    end
+    
+    return scenarios
+end
+
+"""
+    verify_scenario_correlation(scenarios::Dict{Any,Dict{Any,Float64}}, expected_correlation::Matrix{Float64})
+
+Verify that generated scenarios have the expected correlation structure.
+
+# Arguments
+- `scenarios`: Dictionary of generated scenarios
+- `expected_correlation`: Expected correlation matrix
+
+# Returns
+- Nothing, prints correlation analysis
+"""
+function verify_scenario_correlation(scenarios::Dict{Any, Any}, expected_correlation::Matrix{Float64})
+    # Calculate actual correlation from scenarios
+    actual_correlation = calculate_load_correlations(scenarios)
+    
+    println("Correlation Analysis:")
+    println("Maximum absolute difference between expected and actual correlation: ",
+            maximum(abs.(expected_correlation - actual_correlation)))
+    
+    println("\nExpected Correlation Matrix:")
+    display(expected_correlation)
+    
+    println("\nActual Correlation Matrix:")
+    display(actual_correlation)
+end
+
+"""
+    analyze_scenario_statistics(scenarios::Dict{Any,Dict{Any,Float64}}, base_loads::Dict{Any,Float64})
+
+Analyze the statistical properties of generated scenarios.
+
+# Arguments
+- `scenarios`: Dictionary of generated scenarios
+- `base_loads`: Dictionary of base load values
+
+# Returns
+- Nothing, prints statistical analysis
+"""
+function analyze_scenario_statistics(scenarios::Dict{Any, Any}, base_loads::Dict{Any, Any})
+    num_scenarios = length(scenarios)
+    load_ids = collect(keys(base_loads))
+    
+    println("\nScenario Statistics:")
+    for load_id in load_ids
+        values = [scenarios[s][load_id] for s in 1:num_scenarios]
+        
+        println("\nLoad $load_id:")
+        println("  Base Value: $(base_loads[load_id])")
+        println("  Mean: $(mean(values))")
+        println("  Std Dev: $(std(values))")
+        println("  Min: $(minimum(values))")
+        println("  Max: $(maximum(values))")
+    end
+end
+
+"""
+    calculate_load_correlations(samples::Dict{Any,Dict{Any,Float64}})::Matrix{Float64}
+
+Calculate correlation matrix between loads using provided samples.
+
+# Arguments
+- `samples`: Dictionary of sampled scenarios
+
+# Returns
+- Correlation matrix between loads
+"""
+function calculate_load_correlations(samples::Dict{Any, Any})::Matrix{Float64}
+    # Get dimensions
+    num_samples = length(samples)
+    load_ids = collect(keys(samples[1]))
+    num_loads = length(load_ids)
+    
+    # Convert samples to matrix form
+    sample_matrix = zeros(num_samples, num_loads)
+    for (s, scenario) in samples
+        for (j, load_id) in enumerate(load_ids)
+            sample_matrix[s,j] = scenario[load_id]
+        end
+    end
+    
+    return cor(sample_matrix)
+end
+
+"""
+Tests given PG values against multiple scenarios, counting how many scenarios work.
+
+# Arguments
+- `pg_values`: DenseAxisArray of PG values
+- `scenarios`: Dictionary of scenario dictionaries
+- `file_path`: Path to the case file
+
+# Returns
+- Number of scenarios that successfully optimized with the given PG values
+"""
+function test_concrete_solution(pg_values::JuMP.Containers.DenseAxisArray, scenarios::Dict, dc_factory::AbstractMPOPFModelFactory)
+    successful_scenarios = 0
+    
+    # Loop through each scenario
+    for (s, scenario) in scenarios
+        # Create new model with single scenario
+        single_scenario = Dict(1 => scenario)
+        model = create_model(dc_factory, single_scenario)
+        
+        # Fix the pg values - need to match the indices
+        for g in axes(pg_values, 2)
+            fix(model.model[:pg][1,g], pg_values[1,g]; force=true)
+        end
+        
+        # Try to optimize
+        try
+            optimize!(model.model)
+            if termination_status(model.model) == MOI.OPTIMAL
+                # Check mu_plus values
+                mu_plus_vals = JuMP.value.(model.model[:mu_plus])
+                has_failures = false
+                
+                # Check if any mu_plus value is significantly greater than zero
+                # Using tolerance of 1e-10 to avoid numerical issues
+                for idx in eachindex(mu_plus_vals)
+                    if mu_plus_vals[idx] > 1e-10
+                        has_failures = true
+                        break
+                    end
+                end
+                
+                if !has_failures
+                    successful_scenarios += 1
+                end
+            end
+        catch
+            continue  # If optimization fails, move to next scenario
+        end
+    end
+    
+    return successful_scenarios
+end
+
+"""
     sample_demand_scenarios(distributions::Dict{Any, Any}, num_scenarios::Int64=1, debug::Bool=false)
 
 Sample demand scenarios for a given set of distributions.
@@ -160,7 +365,7 @@ function set_model_uncertainty_variables!(power_flow_model::MPOPFModelUncertaint
     @variable(model, mu_minus[t in 1:T, l in keys(ref[:bus]), s in 1:length(scenarios)] >= 0)
 end
 
-function set_model_uncertainty_objective_function!(power_flow_model::MPOPFModelUncertainty, factory::ACMPOPFModelFactory)
+function set_model_uncertainty_objective_function!(power_flow_model::MPOPFModelUncertainty, factory::ACMPOPFModelFactory, mu_plus_cost::Float64, mu_minus_cost::Float64)
     model = power_flow_model.model
     data = power_flow_model.data
     T = power_flow_model.time_periods
@@ -276,7 +481,7 @@ function set_model_uncertainty_constraints!(power_flow_model::MPOPFModelUncertai
     end
 end
 
-function set_model_uncertainty_objective_function!(power_flow_model::MPOPFModelUncertainty, factory::DCMPOPFModelFactory)
+function set_model_uncertainty_objective_function!(power_flow_model::MPOPFModelUncertainty, factory::DCMPOPFModelFactory, mu_plus_cost::Float64, mu_minus_cost::Float64)
     model = power_flow_model.model
     data = power_flow_model.data
     T = power_flow_model.time_periods
@@ -295,8 +500,8 @@ function set_model_uncertainty_objective_function!(power_flow_model::MPOPFModelU
         sum(ramping_cost * (ramp_up[t, g] + ramp_down[t, g]) for g in keys(gen_data) for t in 2:T)
         # Adding some cost for mu_plus and mu_minus.
         # + sum(10000 * (mu_plus[t, g, s] + mu_minus[t, b, s]) for g in keys(ref[:gen]) for b in keys(ref[:bus]) for t in 1:T for s in 1:length(scenarios))
-        + sum(1000000 * mu_plus[t, g, s] for t in 1:T for s in 1:length(scenarios) for g in keys(ref[:gen]))
-        + sum(1000000 * mu_minus[t, b, s] for t in 1:T for s in 1:length(scenarios) for b in keys(ref[:bus]))
+        + sum(mu_plus_cost * mu_plus[t, g, s] for t in 1:T for s in 1:length(scenarios) for g in keys(ref[:gen]))
+        + sum(mu_minus_cost * mu_minus[t, b, s] for t in 1:T for s in 1:length(scenarios) for b in keys(ref[:bus]))
     )
 end
 
@@ -383,4 +588,3 @@ function set_model_uncertainty_constraints!(power_flow_model::MPOPFModelUncertai
         end
     end
 end
-

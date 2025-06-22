@@ -97,9 +97,13 @@ function compute_and_save_feasibility(factory::Union{ACMPOPFModelFactory, DCMPOP
 	new_o_error = abs(sum((val1 - val2) / val2) / bus_len) 
 
 	# get vm values from the model, dc models do not have vm values, so default to 1
-	val3 = factory isa DCMPOPFModelFactory ? 0 : value.(getindex.((pairs(cat(model.model[:vm], dims=1)) |> collect)[1:length(model.model[:va])], 2))
-	val4 = factory isa DCMPOPFModelFactory ? 0 : value.(getindex.((pairs(cat(ac_model.model[:vm], dims=1)) |> collect)[1:length(ac_model.model[:va])], 2))
-	new_v_error = factory isa DCMPOPFModelFactory ? 1 : abs(sum((val3 - val4) / val4) / bus_len)
+	# val3 = factory isa DCMPOPFModelFactory ? 0 : value.(getindex.((pairs(cat(model.model[:vm], dims=1)) |> collect)[1:length(model.model[:va])], 2))
+	# val4 = factory isa DCMPOPFModelFactory ? 0 : value.(getindex.((pairs(cat(ac_model.model[:vm], dims=1)) |> collect)[1:length(ac_model.model[:va])], 2))
+	# new_v_error = factory isa DCMPOPFModelFactory ? 1 : abs(sum((val3 - val4) / val4) / bus_len)
+
+    val3 = value.(getindex.((pairs(cat(model.model[:vm], dims=1)) |> collect)[1:length(model.model[:va])], 2))
+	val4 = value.(getindex.((pairs(cat(ac_model.model[:vm], dims=1)) |> collect)[1:length(ac_model.model[:va])], 2))
+	new_v_error = abs(sum((val3 - val4) / val4) / bus_len)
 
 	# calculate sum of x over sum of pg from inital model to show feasibility
 	sum_x = sum(value.(ac_model.model[:x]))
@@ -148,7 +152,7 @@ end
 """
     load_and_graph_results(results_directory::String, save_to_file::Bool=false)
 
-Load results from a directory and generate graphs for feasibility, voltage magnitude error, voltage angle error, and computation times (times not complete).
+Load results from a directory and generate graphs for feasibility, voltage magnitude error, voltage angle error, and computation times.
 
 # Arguments
 - `results_directory::String`: The directory where the results are stored. To get results run the function `compute_and_save_feasibility`.
@@ -178,9 +182,11 @@ function load_and_graph_results(results_directory::String, save_to_file::Bool=fa
         case_name = basename(case_dir)
 		bus_count = nothing
         case_results = Dict()
+        optimized_models = Dict()
 
         for model in model_types
             results_file = joinpath(case_dir, model, "results.jls")
+            model_file = joinpath(case_dir, model, "optimized_model.jls")
             if isfile(results_file)
                 data = open(deserialize, results_file)
                 case_results[model] = data
@@ -195,11 +201,16 @@ function load_and_graph_results(results_directory::String, save_to_file::Bool=fa
                     end
                 end
             end
+            # If the model file exists, load the model
+            if isfile(model_file)
+                model_data = open(deserialize, model_file)
+                optimized_models[model] = model_data
+            end
         end
 
         # Only add cases where we have both results and bus count
-        if !isempty(case_results) && !isnothing(bus_count)
-            push!(case_data, (case_name, bus_count, case_results))
+        if !isempty(case_results) && !isnothing(bus_count) && !isempty(optimized_models)
+            push!(case_data, (case_name, bus_count, case_results, optimized_models))
         end
     end
 
@@ -215,13 +226,15 @@ function load_and_graph_results(results_directory::String, save_to_file::Bool=fa
         o_errors = Float64[]
         times = Float64[]
 
-        for (_, _, case_results) in case_data
+        for (_, _, case_results, optimized_model) in case_data
             if haskey(case_results, model)
                 data = case_results[model]
+                MPOPF_Model = optimized_model[model]
                 push!(costs, first(values(data["costs"])))
                 push!(v_errors, first(values(data["v_error"])))
                 push!(o_errors, first(values(data["o_error"])))
-                push!(times, first(values(data["times"])))
+                # push!(times, first(values(data["times"])))
+                push!(times, JuMP.solve_time(MPOPF_Model.model))
             else
                 push!(costs, NaN)
                 push!(v_errors, NaN)
@@ -250,7 +263,7 @@ function load_and_graph_results(results_directory::String, save_to_file::Bool=fa
     create_plot(feasibility_graph, "", "Cases (sorted by number of buses)", "Cost Error")
     create_plot(v_error_graph, "", "Cases (sorted by number of buses)", "Magnitude Error", (0.8025, 0.98))
     create_plot(o_error_graph, "", "Cases (sorted by number of buses)", "Angle Error")
-    create_plot(time_graph, "", "Cases (sorted by number of buses)", "Time (s)")
+    create_plot(time_graph, "", "Cases (sorted by number of buses)", "Time (seconds)")
 
 
     # Save graphs if save_to_file is true
@@ -262,6 +275,190 @@ function load_and_graph_results(results_directory::String, save_to_file::Bool=fa
     end
 
     return feasibility_graph, v_error_graph, o_error_graph, time_graph
+end
+
+"""
+    load_and_graph_results_recalculate(results_directory::String, save_to_file::Bool=false)
+
+This function is the same as `load_and_graph_results` but it recalculates the voltage magnitude and angle errors instead fo pulling them from the results dictionary.
+Load results from a directory and generate graphs for feasibility, voltage magnitude error, voltage angle error, and computation times.
+
+# Arguments
+- `results_directory::String`: The directory where the results are stored. To get results run the function `compute_and_save_feasibility`.
+- `save_to_file::Bool`: Whether to save the generated graphs to a file (optional).
+
+# Returns
+- `feasibility_graph`, `v_error_graph`, `o_error_graph`, and `time_graph`.
+"""
+function load_and_graph_results_recalculate(results_directory::String, save_to_file::Bool=false)
+    # Define model types and their corresponding colors
+    model_types = ["AC", "DC", "Linear", "Logarithmic", "Quadratic"]
+    style_indexes = [1, 2, 3, 4, 5]
+
+    # Initialize graphs
+    feasibility_graph = Graph("Feasibility_Graphs/feasibility.pdf")
+    v_error_graph = Graph("Feasibility_Graphs/v_error.pdf")
+    o_error_graph = Graph("Feasibility_Graphs/o_error.pdf")
+    time_graph = Graph("Feasibility_Graphs/computation_time.pdf")
+
+    # Get all case directories
+    case_dirs = sort(filter(isdir, readdir(results_directory, join=true)))
+    
+    # Create a list to store case information and results
+    case_data = []
+
+    for case_dir in case_dirs
+        case_name = basename(case_dir)
+		bus_count = nothing
+        case_results = Dict()
+        optimized_models = Dict()
+
+        ac_models = Dict()
+
+        for model in model_types
+            results_file = joinpath(case_dir, model, "results.jls")
+            model_file = joinpath(case_dir, model, "optimized_model.jls")
+
+            if isfile(results_file)
+                data = open(deserialize, results_file)
+                case_results[model] = data
+
+                # Get bus count from the first available model
+                if isnothing(bus_count)
+                    optimized_model_file = joinpath(case_dir, model, "optimized_model.jls")
+                    if isfile(optimized_model_file)
+                        optimized_model = open(deserialize, optimized_model_file)
+                        ref = get_ref(optimized_model.data)
+                        bus_count = length(ref[:bus])
+                    end
+                end
+            end
+            # If the model file exists, load the model
+            if isfile(model_file)
+                model_data = open(deserialize, model_file)
+                optimized_models[model] = model_data
+                pg = value.(model_data.model[:pg])
+                if model == "DC"
+                    qg = 0
+                else
+                    qg = value.(model_data.model[:qg])
+                end
+                path = "Cases/" * case_name * ".m"
+                ac_factory = NewACMPOPFModelFactory(path, Ipopt.Optimizer)
+                ac_model = create_model_check_feasibility(ac_factory, pg, qg)
+                optimize_model(ac_model)
+                ac_models[model] = ac_model
+
+            end
+        end
+
+        # Only add cases where we have both results and bus count
+        if !isempty(case_results) && !isnothing(bus_count) && !isempty(optimized_models) && !isnothing(ac_models)
+            push!(case_data, (case_name, bus_count, case_results, optimized_models, ac_models))
+        end
+    end
+
+    # Sort case_data based on the number of buses
+    sort!(case_data, by = x -> x[2])
+
+    # Extract sorted case names
+    case_names = [x[1] for x in case_data]
+
+    compiled_results = Dict{String, Dict{String, Dict{String, Float64}}}()
+
+    for (i, model) in enumerate(model_types)
+        costs = Float64[]
+        v_errors = Float64[]
+        o_errors = Float64[]
+        times = Float64[]
+
+        for (case_name, bus_len, case_results, optimized_model, ac_model) in case_data
+            if haskey(case_results, model)
+                data = case_results[model]
+                MPOPF_Model = optimized_model[model]
+                push!(costs, first(values(data["costs"])))
+                new_v_error = NaN
+                new_o_error = NaN
+                # push!(v_errors, first(values(data["v_error"])))
+                # push!(o_errors, first(values(data["o_error"])))
+                try
+                    if (model == "DC")
+                        vm_ones = ones(length(MPOPF_Model.model[:va]))
+                        val3 = value.(getindex.((pairs(cat(vm_ones, dims=1)) |> collect)[1:length(MPOPF_Model.model[:va])], 2))
+                    else 
+                        val3 = value.(getindex.((pairs(cat(MPOPF_Model.model[:vm], dims=1)) |> collect)[1:length(MPOPF_Model.model[:va])], 2))
+                    end
+                    val4 = value.(getindex.((pairs(cat(ac_model[model].model[:vm], dims=1)) |> collect)[1:length(ac_model[model].model[:va])], 2))
+                    new_v_error = abs(sum((val3 - val4) / val4) / bus_len)
+                    push!(v_errors, new_v_error)
+                catch e
+                    error("Error calculating v_error for $model in case $case_name: $e")
+                    push!(v_errors, NaN)
+                end
+
+                # Calculate new o_error using the formula with :va
+                try
+                    val1 = value.(getindex.((pairs(cat(MPOPF_Model.model[:va], dims=1)) |> collect)[1:length(MPOPF_Model.model[:va])], 2))
+                    val2 = value.(getindex.((pairs(cat(ac_model[model].model[:va], dims=1)) |> collect)[1:length(ac_model[model].model[:va])], 2))
+                    new_o_error = abs(sum((val1 - val2) / val2) / bus_len)
+                    push!(o_errors, new_o_error)
+                catch e
+                    error("Error calculating o_error for $model in case $case_name: $e")
+                    push!(o_errors, NaN)
+                end
+
+                # push!(times, first(values(data["times"])))
+                push!(times, JuMP.solve_time(MPOPF_Model.model))
+
+                compiled_results[case_name] = get!(compiled_results, case_name, Dict{String, Dict{String, Float64}}())
+                compiled_results[case_name][model] = get!(compiled_results[case_name], model, Dict{String, Float64}())
+                compiled_results[case_name][model]["cost"] = first(values(data["costs"]))
+                compiled_results[case_name][model]["v_error"] = new_v_error
+                compiled_results[case_name][model]["o_error"] = new_o_error
+                compiled_results[case_name][model]["time"] = JuMP.solve_time(MPOPF_Model.model)
+
+            else
+                push!(costs, NaN)
+                push!(v_errors, NaN)
+                push!(o_errors, NaN)
+                push!(times, NaN)
+            end
+
+
+        end
+
+        # Add data to graphs
+        add_scatter(feasibility_graph, case_names, costs, model, style_indexes[i])
+        # Only add non-DC models to v_error_graph
+		# if model != "DC"
+			add_scatter(v_error_graph, case_names, v_errors, model, style_indexes[i])
+		# end
+        add_scatter(o_error_graph, case_names, o_errors, model, style_indexes[i])
+        add_scatter(time_graph, case_names, times, model, style_indexes[i])
+    end
+
+    # Create plots *** Has Titles ***
+    # create_plot(feasibility_graph, "Feasibility of Various Models", "Cases (sorted by number of buses)", "Cost Error")
+    # create_plot(v_error_graph, "Voltage Magnitude (Vm) Error of Various Models", "Cases (sorted by number of buses)", "Magnitude Error", (0.8025, 0.98))
+    # create_plot(o_error_graph, "Voltage Angle (Va) Error of Various Models", "Cases (sorted by number of buses)", "Angle Error")
+    # create_plot(time_graph, "Computation Time of Various Models", "Cases (sorted by number of buses)", "Time (s)")
+
+    # Create plots *** No Titles ***
+    create_plot(feasibility_graph, "", "Cases (sorted by number of buses)", "Cost Error")
+    create_plot(v_error_graph, "", "Cases (sorted by number of buses)", "Magnitude Error", (0.8025, 0.98))
+    create_plot(o_error_graph, "", "Cases (sorted by number of buses)", "Angle Error")
+    create_plot(time_graph, "", "Cases (sorted by number of buses)", "Time (seconds)")
+
+
+    # Save graphs if save_to_file is true
+    if save_to_file
+        save_graph(feasibility_graph)
+        save_graph(v_error_graph)
+        save_graph(o_error_graph)
+        save_graph(time_graph)
+    end
+
+    return feasibility_graph, v_error_graph, o_error_graph, time_graph, compiled_results
 end
 
 """
@@ -288,30 +485,28 @@ function load_and_compile_results(results_directory::String, save_to_file::Bool=
 
     for case_dir in case_dirs
         case_name = basename(case_dir)
-		bus_count = nothing
         case_results = Dict()
+        optimized_models = Dict()
 
         for model in model_types
             results_file = joinpath(case_dir, model, "results.jls")
+            model_file = joinpath(case_dir, model, "optimized_model.jls")
+
             if isfile(results_file)
                 data = open(deserialize, results_file)
                 case_results[model] = data
+            end
 
-                # Get bus count from the first available model
-                if isnothing(bus_count)
-                    optimized_model_file = joinpath(case_dir, model, "optimized_model.jls")
-                    if isfile(optimized_model_file)
-                        optimized_model = open(deserialize, optimized_model_file)
-                        ref = get_ref(optimized_model.data)
-                        bus_count = length(ref[:bus])
-                    end
-                end
+            # If the model file exists, load the model
+            if isfile(model_file)
+                model_data = open(deserialize, model_file)
+                optimized_models[model] = model_data
             end
         end
 
         # Only add cases where we have both results and bus count
-        if !isempty(case_results) && !isnothing(bus_count)
-            push!(case_data, (case_name, bus_count, case_results))
+        if !isempty(case_results) && !isempty(optimized_models)
+            push!(case_data, (case_name, optimized_models, case_results))
         end
     end
 
@@ -327,14 +522,16 @@ function load_and_compile_results(results_directory::String, save_to_file::Bool=
     end
 
     # Collect results for each model and case
-    for (case_name, _, case_results) in case_data
+    for (case_name, optimized_model, case_results) in case_data
         for model in model_types
             if haskey(case_results, model)
                 data = case_results[model]
+                MPOPF_Model = optimized_model[model]
                 model_results[model]["costs"][case_name] = first(values(data["costs"]))
                 model_results[model]["v_errors"][case_name] = first(values(data["v_error"]))
                 model_results[model]["o_errors"][case_name] = first(values(data["o_error"]))
-                model_results[model]["times"][case_name] = first(values(data["times"]))
+                # model_results[model]["times"][case_name] = first(values(data["times"]))
+                model_results[model]["times"][case_name] = JuMP.solve_time(MPOPF_Model.model)
             else
                 model_results[model]["costs"][case_name] = NaN
                 model_results[model]["v_errors"][case_name] = NaN
@@ -418,7 +615,7 @@ end
 Calculate the average values for cost, v_error, o_error and times for all models in the dictionary
 
 # Arguments
-- `model_results::Dict{String, Dict{String, Dict{String, Float64}}}`: The dictionary of models to be analysed.
+- `model_results::Dict{String, Dict{String, Dict{String, Float64}}}`: The dictionary of models to be analyzed.
 - This `model_results` can be obtained by running the function `load_and_compile_results`.
 
 # Returns
@@ -445,6 +642,49 @@ function calculate_model_averages(model_results::Dict{String, Dict{String, Dict{
                 model_averages[model][metric] = NaN
             end
         end
+    end
+
+    return model_averages
+end
+
+"""
+    compute_result_averages(compiled_results::Dict{String, Dict{String, Dict{String, Float64}}})
+
+Calculate the average values for cost, v_error, o_error and times for all models in the results dictionary
+
+# Arguments
+- `model_results::Dict{String, Dict{String, Dict{String, Float64}}}`: The dictionary of models to be analyzed.
+- This `model_results` can be obtained by running the function `load_and_compile_results`.
+
+# Returns
+- `Dict{String, Dict{String, Float64}}`: A dictionary that maps the model to a metric to a value
+"""
+function compute_result_averages(compiled_results)
+    model_averages = Dict{String, Dict{String, Float64}}()
+
+    model_types = ["AC", "DC", "Linear", "Logarithmic", "Quadratic"]
+
+    for model in model_types
+        times = Float64[]
+        costs = Float64[]
+        verrs = Float64[]
+        oerrs = Float64[]
+
+        for (case_name, case_data) in compiled_results
+            if haskey(case_data, model)
+                push!(times, case_data[model]["time"])
+                push!(costs, case_data[model]["cost"])
+                push!(verrs, case_data[model]["v_error"])
+                push!(oerrs, case_data[model]["o_error"])
+            end
+        end
+
+        model_averages[model] = Dict(
+            "average_time"   => mean(times),
+            "average_cost"   => mean(costs) * 100,
+            "average_v_error"=> mean(verrs) * 100,
+            "average_o_error"=> mean(oerrs) * 100
+        )
     end
 
     return model_averages
@@ -549,3 +789,64 @@ function find_bound_violations(model::Model)
 	# return the violations
 	return violations
 end
+
+################################################################################
+# Example of loading results from a directory and graphing them
+# Do not uncomment the following lines, they are for demonstration purposes only
+################################################################################
+
+# using MPOPF
+# using Ipopt
+# using JuMP
+# using MathOptInterface
+# using PowerModels
+# using Serialization
+
+# results_dir = "results_cleaned/"
+
+# models = load_and_compile_models(results_dir) # Just for show, not used here
+
+# results = load_and_compile_results(results_dir)
+
+# results["AC"]["times"]["case9"] # Get the time for the AC model for case9
+# results["Logarithmic"]["times"]["case9"] # Get the time for the Logarithmic model for case9
+# results["Linear"]["times"]["case14"] # Get the time for the Logarithmic model for case14
+
+# feasibility_graph, v_error_graph, o_error_graph, time_graph = load_and_graph_results(results_dir, false)
+
+
+################################################################################
+# Example of calculating averages for the linearization paper
+# Do not uncomment the following lines, they are for demonstration purposes only
+################################################################################
+
+# using MPOPF
+# using Ipopt
+# using JuMP
+# using MathOptInterface
+# using PowerModels
+# using Serialization
+
+# results_dir = "results_cleaned/"
+
+# feasibility_graph, v_error_graph, o_error_graph, time_graph, compiled_results = load_and_graph_results_recalculate(results_dir, false)
+
+# using Serialization
+
+# compiled_results
+
+# # For saving the results to a file
+# serialize("compiled_results_used_for_averages.jls", compiled_results)
+
+# # For loading the results from a file
+# compiled_results = deserialize("compiled_results_used_for_averages.jls")
+
+# display(compiled_results)
+
+# compiled_results["case14"]["Quadratic"] # Example of getting the results for the Quadratic model for case14
+
+# using Statistics
+
+# # Example usage of getting averages:
+# model_avgs = compute_result_averages(compiled_results)
+# display(model_avgs)

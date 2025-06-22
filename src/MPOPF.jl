@@ -11,6 +11,7 @@ This module provides tools to create, optimize, and analyze MPOPF models using v
 module MPOPF
     using PowerModels, JuMP, Dates, Serialization, PlotlyJS, Ipopt
     using Distributions, Statistics
+    using LinearAlgebra, Random
 
     # Exporting these functions from the module so we dont have to prefix them with MPOPF.
 
@@ -19,6 +20,7 @@ module MPOPF
 
     # Export of implementation_uncertainty.jl
     export generate_random_load_scenarios, setup_demand_distributions, sample_demand_scenarios, return_loads
+    export generate_correlated_scenarios, verify_scenario_correlation, analyze_scenario_statistics, calculate_load_correlations, test_concrete_solution
 
     # Export of Graphing_class.jl functions
     # TODO: Need to have proper documentation for the Graphing class
@@ -28,13 +30,13 @@ module MPOPF
     # TODO: Need to document these functions
     # TODO: Need to rename these functions as well, for example, save is confusing
     # TODO: After renaming them need to also rename the places they are used
-    export generate_load_scenarios, save, retreive, output_to_file
+    export generate_load_scenarios, save, retreive, output_to_file, get_random_scenarios
 
     # Export of graphing_feasibility.jl
     export perform_feasibility
 
     # Export of compute_and_save_feasibility.jl
-    export compute_and_save_feasibility, load_and_graph_results, load_and_compile_results, calculate_model_averages, find_infeasible_constraints, find_bound_violations, load_and_compile_models
+    export compute_and_save_feasibility, load_and_graph_results, load_and_compile_results, compute_result_averages, find_infeasible_constraints, find_bound_violations, load_and_compile_models
 
     # Export of rampingCSVimplementation.jl
     export safe_parse_float, parse_power_system_csv, generate_power_system_csv
@@ -298,10 +300,13 @@ module MPOPF
     # Returns
     An `MPOPFModelUncertainty` object representing the created MPOPF model with uncertainty.
     """
-    function create_model(factory::AbstractMPOPFModelFactory, scenarios::Dict, time_periods::Int64=1, factors::Vector{Float64}=[1.0], ramping_cost::Int64=0)::MPOPFModelUncertainty
+    function create_model(factory::AbstractMPOPFModelFactory, scenarios::Dict, mismatch_costs::Tuple{Float64,Float64}=(10000.0, 10000.0), time_periods::Int64=1, factors::Vector{Float64}=[1.0], ramping_cost::Int64=0)::MPOPFModelUncertainty
         data = PowerModels.parse_file(factory.file_path)
         PowerModels.standardize_cost_terms!(data, order=2)
         PowerModels.calc_thermal_limits!(data)
+
+        mu_plus_cost = mismatch_costs[1]
+        mu_minus_cost = mismatch_costs[2]
 
         model = JuMP.Model(factory.optimizer)
 
@@ -309,7 +314,7 @@ module MPOPF
 
         set_model_variables!(power_flow_model, factory)
         set_model_uncertainty_variables!(power_flow_model)
-        set_model_uncertainty_objective_function!(power_flow_model, factory)
+        set_model_uncertainty_objective_function!(power_flow_model, factory, mu_plus_cost, mu_minus_cost)
         set_model_uncertainty_constraints!(power_flow_model, factory)
 
         return power_flow_model

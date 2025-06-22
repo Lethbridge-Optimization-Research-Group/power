@@ -82,8 +82,41 @@ function output_to_file(data::String, file_name::String="", show_date::Bool=fals
 	end
 end
 
+function get_random_scenarios(loads, min, max, num_scenarios, debug=false)
+    scenarios = Dict()
 
+    # Calculate bounds
+    lower_bound = 1 - min
+    upper_bound = 1 + max
 
+    if debug
+        println("Sampling diagnostics:")
+        println("Bounds: [$lower_bound, $upper_bound]")
+        println("Original loads: $loads")
+        println()
+    end
+
+    for s in 1:num_scenarios
+        scenario = Dict()
+        for (i, load) in loads
+            # Generate random multiplier
+            multiplier = rand() * (upper_bound - lower_bound) + lower_bound
+            scenario[i] = load * multiplier
+            
+            if debug
+                println("Scenario $s, Load $i:")
+                println("  Original Value: $load")
+                println("  Multiplier: $multiplier")
+                println("  New Value: $(scenario[i])")
+                println()
+            end
+        end
+        scenarios[s] = scenario
+    end
+
+    return scenarios
+
+end
 
 
 

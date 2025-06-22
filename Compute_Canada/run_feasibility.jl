@@ -30,9 +30,4 @@ function run_model(case_file, model_type)
 end
 
 # Run the specified model
-run_model("./Cases/scenarios_ACTIVSg2000.m", "lin3")
-
-factory = DCMPOPFModelFactory("./Cases/scenarios_ACTIVSg2000.m", Ipopt.Optimizer)
-model = create_model(factory)
-factory2 = DCMPOPFModelFactory("./Cases/scenarios_ACTIVSg2000.m", Ipopt.Optimizer)
-model2 = create_model(factory)
+run_model(case_file, model_type)
