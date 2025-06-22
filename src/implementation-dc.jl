@@ -43,11 +43,6 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::D
     ramp_up = model[:ramp_up]
     ramp_down = model[:ramp_down]
 
-    println(ref[:load])
-    println("###############")
-    println(ref[:bus_loads])
-
-
     p_expr = Dict()
     for t in 1:T
         p_expr[t] = Dict()
