@@ -6,7 +6,7 @@ using Statistics, Plots, GraphRecipes
 include("graph_search.jl")
 include("rampingCSVimplementation.jl")
 
-matpower_file_path = "./Cases/case14.m"
+matpower_file_path = "./Cases/case1354pegase.m"
 
 output_dir = "./Cases"
 data = PowerModels.parse_file(matpower_file_path)
@@ -17,7 +17,7 @@ ramping_csv_file = generate_daily_demand_csv(data, output_dir)
 ramping_data, demands = parse_power_system_csv(ramping_csv_file, matpower_file_path)
 
 search_factory = DCMPOPFSearchFactory(matpower_file_path, Gurobi.Optimizer)
-search_model = create_search_model(search_factory, 24, ramping_data, demands)
+search_model = create_search_model(search_factory, 10, ramping_data, demands)
 opt_start = time()
 optimize!(search_model.model)
 opt_stop = time()

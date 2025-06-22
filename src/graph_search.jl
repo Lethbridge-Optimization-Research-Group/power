@@ -513,9 +513,9 @@ function generate_new_scenarios(current_outputs, iteration; scenarios_to_generat
             max_variation = val * (variation_percent/100)
             variation = rand() * max_variation
             if rand() >= pos_or_neg
-                random_dict[gen] = val + variation
+                random_dict[gen] = val + variation # TODO : Modify to take the min of variation and pmax
             else
-                random_dict[gen] = max(0, val - variation)
+                random_dict[gen] = max(0, val - variation) # TODO : Modify to take max of pmin rather than 0
             end
         end
         random_scenarios[i] = random_dict
