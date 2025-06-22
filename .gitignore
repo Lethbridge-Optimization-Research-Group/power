@@ -5,3 +5,4 @@ docs/build/
 output/*
 results/
 large_results/
+Cases/*

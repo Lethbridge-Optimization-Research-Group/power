@@ -8,10 +8,12 @@ function set_model_variables!(power_flow_model::AbstractMPOPFModel, factory::DCM
     
     @variable(model, va[t in 1:T, i in keys(bus_data)])
     @variable(model, gen_data[i]["pmin"] <= pg[t in 1:T, i in keys(gen_data)] <= gen_data[i]["pmax"])
-    # @variable(model, -branch_data[l]["rate_a"] <= p[t in 1:T, (l,i,j) in ref[:arcs]] <= branch_data[l]["rate_a"])
     @variable(model, -ref[:branch][l]["rate_a"] <= p[1:T,(l,i,j) in ref[:arcs_from]] <= ref[:branch][l]["rate_a"])
     @variable(model, 0 <= ramp_up[t in 2:T, g in keys(gen_data)] <= ramp_data[g])
     @variable(model, 0 <= ramp_down[t in 2:T, g in keys(gen_data)] <= ramp_data[g])
+
+    #@variable(model, generation_cost[t in 1:T, g in keys(gen_data)] >= 0)
+    #@variable(model, ramping_cost[t in 2:T, g in keys(gen_data)] >= 0)
 end
 
 function set_model_objective_function!(power_flow_model::AbstractMPOPFModel, factory::DCMPOPFSearchFactory)
@@ -37,13 +39,29 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::D
     ref = PowerModels.build_ref(data)[:it][:pm][:nw][0]
     gen_data = ref[:gen]
     load_data = ref[:load]
+    ramping_data = power_flow_model.ramping_data
     va = model[:va]
     p = model[:p]
     pg = model[:pg]
     demands = power_flow_model.demands
     ramp_up = model[:ramp_up]
     ramp_down = model[:ramp_down]
+    #generation_cost = model[:generation_cost]
+    #ramping_cost = model[:ramping_cost]
+#=
+    for t in 1:T, g in keys(ref[:gen])
+        @constraint(model, generation_cost[t,g] ==
+            ref[:gen][g]["cost"][1]*pg[t,g]^2 +
+            ref[:gen][g]["cost"][2]*pg[t,g] +
+            ref[:gen][g]["cost"][3])
+    end
 
+    for t in 2:T, g in keys(ref[:gen])
+        @constraint(model, ramping_cost[t,g] ==
+            ramping_data["costs"][g] * (ramp_up[t, g] + ramp_down[t, g]))
+    end
+=#
+    # We no longer need bus_ids and bus_index_to_position, as demands will be indexed by actual bus IDs
     p_expr = Dict(t => Dict() for t in 1:T)
 
     for t in 1:T
@@ -64,10 +82,13 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::D
             bus_loads = [load_data[l] for l in ref[:bus_loads][i]]
             bus_shunts = [ref[:shunt][s] for s in ref[:bus_shunts][i]]
             
+            # Get demand directly using bus ID from the demands dictionary
+            bus_demand = get(demands[t], i, 0.0)
+
             @constraint(model,
                 sum(p_expr[t][a] for a in ref[:bus_arcs][i]) <=
                 sum(pg[t, g] for g in ref[:bus_gens][i]) -
-                sum(get(demands[t], i, 0)) - #epsilon
+                bus_demand -
                 sum(shunt["gs"] for shunt in bus_shunts) * 1.0^2
             )
         end
