@@ -6,3 +6,4 @@ output/*
 results/
 large_results/
 Cases/test/
+*.zip

@@ -1,3 +1,5 @@
+using Distributions
+
 function set_model_variables!(power_flow_model::AbstractMPOPFModel, factory::ACMPOPFModelFactory)
     model = power_flow_model.model
     T = power_flow_model.time_periods
@@ -63,20 +65,22 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::A
 
 		# 
         for (i, bus) in ref[:bus]
+            d = rand(Uniform(.9,1.1))
+            #d = 1
             bus_loads = [load_data[l] for l in ref[:bus_loads][i]]
             bus_shunts = [ref[:shunt][s] for s in ref[:bus_shunts][i]]
 
             @constraint(model,
                 sum(p[t,a] for a in ref[:bus_arcs][i]) ==
                 sum(pg[t, g] for g in ref[:bus_gens][i]) -
-                sum(load["pd"] * factors[t] for load in bus_loads) -
+                sum(load["pd"] * d* factors[t] for load in bus_loads) -
                 sum(shunt["gs"] for shunt in bus_shunts)*vm[t,i]^2
             )
 
             @constraint(model,
                 sum(q[t,a] for a in ref[:bus_arcs][i]) ==
                 sum(qg[t, g] for g in ref[:bus_gens][i]) -
-                sum(load["qd"] * factors[t] for load in bus_loads) +
+                sum(load["qd"] * d * factors[t] for load in bus_loads) +
                 sum(shunt["bs"] for shunt in bus_shunts)*vm[t,i]^2
             )
         end
@@ -127,4 +131,8 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::A
             @constraint(model, ramp_down[t, g] >= pg[t-1, g] - pg[t, g])
         end
     end
+end
+
+function sampling()
+
 end
