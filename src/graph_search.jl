@@ -1,4 +1,4 @@
-using Graphs, MetaGraphs
+using Graphs, MetaGraphs, Gurobi, JuMP
 
 """
     DC_graph_search(data, factory, demands, ramping_data, time_periods)
@@ -28,8 +28,20 @@ Access with info[:parameter]
 """
 
 function DC_graph_search(data, factory, demands, ramping_data, time_periods)
-
+    
+    iteration = 1
+    max_iterations = 500
+    
     start_time = time()
+
+    search_parameters = Dict(
+        :iteration => iteration,
+        :cost_history => Vector{Float64}(),
+        :total_demand => nothing,
+        :total_generation => nothing,
+        :data => data,
+        :ramping_data => ramping_data
+    )
 
     violations = Dict(
         :min_demand_not_met => 0,
@@ -45,10 +57,12 @@ function DC_graph_search(data, factory, demands, ramping_data, time_periods)
         error("Largest time period infeasible")
     end
 
-    loads = generate_random_loads(largest_model)
-    #TODO: Maintain/save initial solution and ensure we return the base solution if no
-    #other solutions are found
-    scenarios, scenario_violations = test_scenarios(data, factory, demands[highest_demand], ramping_data, loads)
+    largest_values = [value(largest_model.model[:pg][key]) for key in keys(largest_model.model[:pg])]
+    baseline_generator_values = Dict(zip(largest_model.model[:pg].axes[2], largest_values))
+
+    initial_scenarios_raw = generate_new_scenarios_subset(baseline_generator_values, search_parameters)
+
+    scenarios, scenario_violations = test_scenarios(data, factory, demands[highest_demand], ramping_data, initial_scenarios_raw)
     violations[:min_demand_not_met] += scenario_violations[:min_demand_not_met]
     violations[:pmin_pmax_out_of_bounds] += scenario_violations[:pmin_pmax_out_of_bounds]
 
@@ -86,17 +100,17 @@ function DC_graph_search(data, factory, demands, ramping_data, time_periods)
     best_path = path
     best_cost = path_results[:total_cost]
     best_solution = extract_solution(best_graph, best_path)
-
-    cost_history = Vector{Float64}()
-    push!(cost_history, best_cost)
-
-    iteration = 1
-    converged = false
-    max_iterations = 50
-    convergence_threshold = 0.01
+    
+    # update search parameters
+    push!(search_parameters[:cost_history], best_cost)
+    search_parameters[:total_demand] = [sum(values(demands[i])) for i in 1:time_periods]
+    search_parameters[:total_generation] = [sum(values(best_solution[i][:generator_values])) for i in 1:time_periods]
+    
 
     generation_cost = 0.0
     ramping_cost = 0.0
+    no_improvement = 0
+    finished = false
 
     while iteration < max_iterations
 
@@ -113,7 +127,7 @@ function DC_graph_search(data, factory, demands, ramping_data, time_periods)
         end
 
         for i in 1:time_periods
-            scenarios_for_period = generate_new_scenarios(current_generator_values[i], iteration)
+            scenarios_for_period = generate_new_scenarios_subset(current_generator_values[i], search_parameters)
             tested_scenarios, scenario_violations = test_scenarios(data, factory, demands[i], ramping_data, scenarios_for_period)
             violations[:min_demand_not_met] += scenario_violations[:min_demand_not_met]
             violations[:pmin_pmax_out_of_bounds] += scenario_violations[:pmin_pmax_out_of_bounds]
@@ -156,8 +170,19 @@ function DC_graph_search(data, factory, demands, ramping_data, time_periods)
             ramping_cost = path_results[:ramping_cost]
         end
 
-        push!(cost_history, best_cost)
+        push!(search_parameters[:cost_history], best_cost)
         iteration += 1
+
+        if iteration > 10
+            recent_costs = search_parameters[:cost_history][iteration - 10:iteration-1]
+            improvement = best_cost / maximum(recent_costs)#maximum(recent_costs) - best_cost
+
+            if improvement > 0.999
+                println("No improvement, stopping at $iteration iterations")
+                break;
+            end
+        end
+
     end
 
     info = Dict(
@@ -165,7 +190,7 @@ function DC_graph_search(data, factory, demands, ramping_data, time_periods)
         :path => best_path,
         :cost => best_cost,
         :solution => best_solution,
-        :cost_history => cost_history,
+        :cost_history => search_parameters[:cost_history],
         :violations => violations,
         :generation_cost => generation_cost,
         :ramping_cost => ramping_cost,
@@ -246,8 +271,6 @@ function test_feasibility(factory, path, graph, demands, ramping_data)
     
     infeasible_nodes = []
 
-
-
     for node in path[2:end-1]
         time_period = get_prop(graph, node, :time_period)
         generator_values = get_prop(graph, node, :generator_values)
@@ -258,7 +281,18 @@ function test_feasibility(factory, path, graph, demands, ramping_data)
         for (gen_id, value) in generator_values
             fix(model.model[:pg][1, gen_id], value, force=true)
         end
-
+        #=
+        set_optimizer(model.model, Gurobi.Optimizer)
+        set_optimizer_attribute(model.model, "Presolve", 2)
+        set_optimizer_attribute(model.model, "OutputFlag", 0)
+        @objective(model.model, Min, 0)
+        
+        set_optimizer(model, HiGHS.Optimizer)
+        set_optimizer_attribute(model, "presolve", "on")
+        set_optimizer_attribute(model, "output_flag", false)
+        @objective(model, Min, 0)
+        =#
+        
         optimize!(model.model)
         status = termination_status(model.model)
 
@@ -267,7 +301,7 @@ function test_feasibility(factory, path, graph, demands, ramping_data)
             continue
         end
 
-        set_prop!(graph, node, :cost, objective_value(model.model))
+        #set_prop!(graph, node, :cost, objective_value(model.model))
 
     end
 
@@ -437,92 +471,149 @@ function build_and_optimize_largest_period(factory, demand, ramping_data)
     return model
 end
 
-"""
-    generate_random_loads(largest_model; scenarios_to_generate=15, variation_percent=1)
+function generate_new_scenarios_subset(current_outputs, search_parameters; 
+                                           scenarios_to_generate=15,
+                                           subset_percentage=0.3, 
+                                           variation_percent=0.05,
+                                           up_probability=0.3)
 
-Create randomized generator load scenarios based on an optimized model.
+    Random.seed!(42 + search_parameters[:iteration])
 
-# Arguments
-- `largest_model::MPOPF.MPOPFSearchModel` : Reference model for baseline generator outputs
-
-# Keyword Arguments
-- `scenarios_to_generate::Int` : Number of random scenarios
-- `variation_percent::Float64` : Percent variation from baseline
-
-# Returns
-- `Vector{Dict{Int64, Float64}}` : Generated scenarios
-"""
-
-function generate_random_loads(largest_model; scenarios_to_generate = 15, variation_percent = 1)
-    # Extract largest values
-    if termination_status(largest_model.model) == MOI.INFEASIBLE
-        error("Largest model is infeasible. Cannot generate random loads.")
-    end
-    
-    largest_values = [value(largest_model.model[:pg][key]) for key in keys(largest_model.model[:pg])]
-    
-    sum_of_largest = sum(largest_values)
-    # Pair values with corresponding generator number
-    pg_values = Dict(zip(largest_model.model[:pg].axes[2], largest_values))
-
-    random_scenarios = Vector{Dict{Int64, Float64}}(undef, scenarios_to_generate)
-
-    for t in 1:scenarios_to_generate
-        random_dict = Dict()
-        pos_or_neg = rand([0.35, 0.5, 0.65]) # randomly select, < will decrease, > will increase
-        for (gen_num, gen_output) in pg_values
-            max_variation = gen_output * (variation_percent/100)
-            variation = rand() * max_variation
-            if rand() >= pos_or_neg
-                random_dict[gen_num] = gen_output + variation
-            else
-                random_dict[gen_num] = gen_output - variation
+    if search_parameters[:iteration] <= 3
+        all_generators = collect(keys(current_outputs))
+        n_generators = length(all_generators)
+        
+        # Calculate how many generators to modify
+        n_to_modify = max(1, round(Int, n_generators * subset_percentage))
+        
+        random_scenarios = Vector{Dict{Int64, Float64}}()
+        
+        for scenario_idx in 1:scenarios_to_generate
+            # Start with current outputs
+            new_scenario = copy(current_outputs)
+            
+            # Randomly select subset of generators to modify
+            generators_to_modify = rand(all_generators, n_to_modify)
+            
+            # Modify each selected generator
+            for gen_id in generators_to_modify
+                current_value = current_outputs[gen_id]
+                max_variation = current_value * variation_percent
+                variation = rand() * max_variation
+                
+                # Decide whether to go up or down
+                if rand() < up_probability
+                    new_scenario[gen_id] = min(data["gen"][string(gen_id)]["pmax"], current_value + variation)
+                else
+                    new_scenario[gen_id] = max(data["gen"][string(gen_id)]["pmin"], current_value - variation)
+                end
             end
+            
+            push!(random_scenarios, new_scenario)
+            #variation_percent += 1
         end
+        
+        # Always include the current solution as one scenario
+        push!(random_scenarios, current_outputs)
+        
+        return random_scenarios
 
-        random_scenarios[t] = random_dict
+    else # iteration > 3, use search heuristic
 
-        variation_percent += 1
+        all_generators = collect(keys(current_outputs))
+        n_generators = length(all_generators)
+        
+        # Calculate how many generators to modify
+        n_to_modify = max(1, round(Int, n_generators * subset_percentage))
+        
+        random_scenarios = Vector{Dict{Int64, Float64}}()
+
+        for scenario_idx in 1:scenarios_to_generate
+            # Start with current outputs
+            new_scenario = copy(current_outputs)
+            
+            # Randomly select subset of generators to modify
+            generators_to_modify = rand(all_generators, n_to_modify)
+
+            variation_percent = delta(scenario_idx, search_parameters, 2)
+            
+            # Modify each selected generator
+            for gen_id in generators_to_modify
+                current_value = current_outputs[gen_id]
+                max_variation = current_value * variation_percent
+                variation = rand() * max_variation # will eventually use delta function to create percent
+                
+                # Decide whether to go up or down
+                if rand() < up_probability
+                    new_scenario[gen_id] = min(data["gen"][string(gen_id)]["pmax"], current_value + variation)
+                else
+                    new_scenario[gen_id] = max(data["gen"][string(gen_id)]["pmin"], current_value - variation)
+                end
+            end
+            
+            push!(random_scenarios, new_scenario)
+            #variation_percent += 1
+        end
+        
+        # Always include the current solution as one scenario
+        push!(random_scenarios, current_outputs)
+        
+        return random_scenarios
     end
-    return random_scenarios
 end
 
-"""
-    generate_new_scenarios(current_outputs, iteration; scenarios_to_generate=15, variation_percent=1)
+function delta(scenario_idx, search_parameters, method_choice)
+    
+    # 1 = standard random approach
+    # 2 = alpha technique (alpha = actual demand / total demand * some factor)
+    # 3 = convolution technique (average of adjacent time periods / total demand * some factor)
+    # 4 = cost history (use change in objective function to determine delta)
+    time_periods = sizeof(search_parameters[:total_generation])
+    
+    if method_choice == 1
+        delta = 5.0
+    elseif method_choice == 2
+        total_demand = search_parameters[:total_demand][scenario_idx]
+        total_generation = search_parameters[:total_generation][scenario_idx]
+        # If generation significantly exceeds demand, use larger variation
+        # If generation barely meets demand, use smaller variation
+        generation_demand_ratio = total_generation / total_demand
+        delta = abs(generation_demand_ratio - 1.0) * 0.3  # Scale factor of 0.3
+        # delta = max(0.01, min(delta, 0.2))  # Use to clamp if wanted
+    elseif method_choice == 3
+        n = 2 # number of neighbours to average
+        total = 0.0
+        no_of_time_periods = 0
 
-Generate new load scenarios based on current outputs, incorporating iteration scaling.
-
-# Arguments
-- `current_outputs::Dict{Int64, Float64}` : Current generator values
-- `iteration::Int` : Current iteration index
-
-# Keyword Arguments
-- `scenarios_to_generate::Int` : Number of scenarios to generate
-- `variation_percent::Float64` : Maximum variation percent
-
-# Returns
-- `Vector{Dict{Int64, Float64}}` : New randomized scenarios
-"""
-
-function generate_new_scenarios(current_outputs, iteration; scenarios_to_generate = 15, variation_percent = 1)
-    random_scenarios = Vector{Dict{Int64, Float64}}(undef, scenarios_to_generate)
-    for i in 1:scenarios_to_generate
-        random_dict = Dict()
-        pos_or_neg = max(0.65, 1 - floor(iteration / 10) / 10)
-        for (gen, val) in current_outputs
-            max_variation = val * (variation_percent/100)
-            variation = rand() * max_variation
-            if rand() >= pos_or_neg
-                random_dict[gen] = val + variation # TODO : Modify to take the min of variation and pmax
+        for i in scenario_idx - n:scenario_idx + n
+            if i < 1 || i > time_periods
+                continue
             else
-                random_dict[gen] = max(0, val - variation) # TODO : Modify to take max of pmin rather than 0
+                total += search_parameters[:total_generation][i]
+                no_of_time_periods += 1
             end
         end
-        random_scenarios[i] = random_dict
-        variation_percent += 1
+
+        if no_of_time_periods > 0
+            average_generation = total / no_of_time_periods
+            current_demand = search_parameters[:total_demand][scenario_idx]
+            
+            # If average generation in neighborhood differs significantly from current demand
+            avg_demand_ratio = average_generation / current_demand
+            delta = abs(avg_demand_ratio - 1.0) * 0.3  # Scale factor of 0.3
+            #delta = max(0.01, min(delta, 0.2))  # Use if wanting to clamp
+        else
+
+            delta = 0.05  # Fallback to default
+        end
+    else
+        delta = 0.05
+        # future, do not do right now
     end
-    push!(random_scenarios, current_outputs)
-    return random_scenarios
+
+
+    return delta
+
 end
 
 """
