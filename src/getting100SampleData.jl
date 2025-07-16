@@ -5,10 +5,12 @@ using CSV
 using DataFrames
 using PowerModels
 using IOCapture
+using Random
 const PM = PowerModels
 
 folder = "Cases/test"
 foldertosave = joinpath(folder, "data")
+Random.seed!(1234)
 
 for file in readdir(folder)
     file_path = joinpath(folder, file)
@@ -27,7 +29,7 @@ for file in readdir(folder)
             write(io, "Index,GeneratorBus,PowerGenerated,ReactivePowerGenerated\n")
         end
         if extension == ".m"
-            for i in 1:100
+            for i in 1:10
                 My_AC_model = nothing
                 data = nothing
                 cost = nothing

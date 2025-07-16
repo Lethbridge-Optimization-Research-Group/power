@@ -66,7 +66,7 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::A
 		# 
         for (i, bus) in ref[:bus]
             d = sampling("Normal")
-            #d = 1
+            println(d)
             bus_loads = [load_data[l] for l in ref[:bus_loads][i]]
             bus_shunts = [ref[:shunt][s] for s in ref[:bus_shunts][i]]
 
