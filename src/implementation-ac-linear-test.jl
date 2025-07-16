@@ -1,6 +1,6 @@
 using Distributions
 
-function set_model_variables!(power_flow_model::AbstractMPOPFModel, factory::ACMPOPFModelFactory)
+function set_model_variables!(power_flow_model::AbstractMPOPFModel, factory::LinTMPOPFModelFactory)
     model = power_flow_model.model
     T = power_flow_model.time_periods
     ref = PowerModels.build_ref(power_flow_model.data)[:it][:pm][:nw][0]
@@ -18,7 +18,7 @@ function set_model_variables!(power_flow_model::AbstractMPOPFModel, factory::ACM
     @variable(model, ramp_down[t in 2:T, g in keys(gen_data)] >= 0)
 end
 
-function set_model_objective_function!(power_flow_model::AbstractMPOPFModel, factory::ACMPOPFModelFactory)
+function set_model_objective_function!(power_flow_model::AbstractMPOPFModel, factory::LinTMPOPFModelFactory)
     model = power_flow_model.model
     data = power_flow_model.data
     T = power_flow_model.time_periods
@@ -35,7 +35,7 @@ function set_model_objective_function!(power_flow_model::AbstractMPOPFModel, fac
     )
 end
 
-function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::ACMPOPFModelFactory)
+function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::LinTMPOPFModelFactory)
     model = power_flow_model.model
     data = power_flow_model.data
     T = power_flow_model.time_periods
@@ -66,7 +66,7 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::A
 		# 
         for (i, bus) in ref[:bus]
             d = sampling("Normal")
-            #d = 1
+            println(d)
             bus_loads = [load_data[l] for l in ref[:bus_loads][i]]
             bus_shunts = [ref[:shunt][s] for s in ref[:bus_shunts][i]]
 
@@ -110,11 +110,29 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::A
             g_to = branch["g_to"]
             b_to = branch["b_to"]
 
-            @constraint(model, p_fr ==  (g+g_fr)/ttm*vm_fr^2 + (-g*tr+b*ti)/ttm*(vm_fr*vm_to*cos(va_fr-va_to)) + (-b*tr-g*ti)/ttm*(vm_fr*vm_to*sin(va_fr-va_to)) )
-            @constraint(model, q_fr == -(b+b_fr)/ttm*vm_fr^2 - (-b*tr-g*ti)/ttm*(vm_fr*vm_to*cos(va_fr-va_to)) + (-g*tr+b*ti)/ttm*(vm_fr*vm_to*sin(va_fr-va_to)) )
+            @constraint(model,
+                p_fr == (g+g_fr)/ttm*vm_fr^2
+                    + (-g*tr+b*ti)/ttm*(0.5147916216666907*vm_fr^2+0.5088437045735438*vm_to^2-0.017138068007827766*va_fr+0.0021238801506343738*va_to-0.027158744394788714)
+                    + (-b*tr-g*ti)/ttm*(0.00099490508773385*vm_fr^2+0.006149037689860731*vm_to^2+1.041781545364324*va_fr-1.0396923665077302*va_to-0.007646619976180888)
+            )
 
-            @constraint(model, p_to ==  (g+g_to)*vm_to^2 + (-g*tr-b*ti)/ttm*(vm_to*vm_fr*cos(va_to-va_fr)) + (-b*tr+g*ti)/ttm*(vm_to*vm_fr*sin(va_to-va_fr)) )
-            @constraint(model, q_to == -(b+b_to)*vm_to^2 - (-b*tr+g*ti)/ttm*(vm_to*vm_fr*cos(va_to-va_fr)) + (-g*tr-b*ti)/ttm*(vm_to*vm_fr*sin(va_to-va_fr)) )
+            @constraint(model,
+                q_fr == -(b+b_fr)/ttm*vm_fr^2
+                    - (-b*tr-g*ti)/ttm*(0.5147916216666907*vm_fr^2+0.5088437045735438*vm_to^2-0.017138068007827766*va_fr+0.0021238801506343738*va_to-0.027158744394788714)
+                    + (-b*tr-g*ti)/ttm*(0.00099490508773385*vm_fr^2+0.006149037689860731*vm_to^2+1.041781545364324*va_fr-1.0396923665077302*va_to-0.007646619976180888)
+            )
+
+            @constraint(model,
+                p_to == (g+g_to)*vm_to^2
+                    + (-g*tr-b*ti)/ttm*(0.5147916216666907*vm_fr^2+0.5088437045735438*vm_to^2-0.017138068007827766*va_fr+0.0021238801506343738*va_to-0.027158744394788714)
+                    + (-b*tr+g*ti)/ttm*(-0.00099490508773385*vm_fr^2-0.006149037689860731*vm_to^2-1.041781545364324*va_fr+1.0396923665077302*va_to+0.007646619976180888)
+            )
+
+            @constraint(model,
+                q_to == -(b+b_to)*vm_to^2
+                    - (-b*tr+g*ti)/ttm*(0.5147916216666907*vm_fr^2+0.5088437045735438*vm_to^2-0.017138068007827766*va_fr+0.0021238801506343738*va_to-0.027158744394788714)
+                    + (-g*tr-b*ti)/ttm*(-0.00099490508773385*vm_fr^2-0.006149037689860731*vm_to^2-1.041781545364324*va_fr+1.0396923665077302*va_to+0.007646619976180888)
+            )
 
             @constraint(model, va_fr - va_to <= branch["angmax"])
             @constraint(model, va_fr - va_to >= branch["angmin"])
@@ -139,7 +157,7 @@ function sampling(i::String)
         d = rand(Uniform(.9,1.1))
     else
         mu = 1
-        sigma = 0.1
+        sigma = 0.01
         d = rand(Normal(mu, sigma))
     end
     return d

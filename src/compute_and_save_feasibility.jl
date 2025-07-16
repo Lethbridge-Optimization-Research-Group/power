@@ -23,6 +23,9 @@ function compute_and_save_feasibility(factory::Union{ACMPOPFModelFactory, DCMPOP
 
 	elseif factory isa DCMPOPFModelFactory
 		factory_type = "DC"
+    
+    elseif factory isa LinTMPOPFModelFactory
+        factory_type = "LinearTest"
 
 	elseif factory isa LinMPOPFModelFactory
 		if model_type == Lin1

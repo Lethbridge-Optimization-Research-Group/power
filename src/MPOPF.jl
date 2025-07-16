@@ -80,9 +80,9 @@ module MPOPF
     """
     mutable struct ACMPOPFModelFactory <: AbstractMPOPFModelFactory
         file_path::String
-        optimizer
+        optimizer::Type
 
-        function ACMPOPFModelFactory(file_path::String, optimizer)
+        function ACMPOPFModelFactory(file_path::String, optimizer::Type)
             return new(file_path, optimizer)
         end
     end
@@ -118,6 +118,23 @@ module MPOPF
         optimizer::Type
 
         function LinMPOPFModelFactory(file_path::String, optimizer::Type)
+            return new(file_path, optimizer)
+        end
+    end
+    """
+        LinTMPOPFModelFactory <: AbstractMPOPFModelFactory
+    Factory for testing linearized MPOPF models.
+    If this factory is used then `model_type` needs to be specified
+    in the `create_model()` function.
+    # Fields
+    - `file_path::String`: Path to the input data file.
+    - `optimizer::Type`: The optimizer to be used.
+    """
+    mutable struct LinTMPOPFModelFactory <: AbstractMPOPFModelFactory
+        file_path::String
+        optimizer::Type
+
+        function LinTMPOPFModelFactory(file_path::String, optimizer::Type)
             return new(file_path, optimizer)
         end
     end
@@ -234,6 +251,7 @@ module MPOPF
     include("graphing_class.jl")
     include("implementation-ac.jl")
     include("implementation-dc.jl")
+    include("implementation-ac-linear-test.jl")
     include("implementation_uncertainty.jl")
     include("implementation-linear.jl")
     include("implementation-new_ac.jl")
