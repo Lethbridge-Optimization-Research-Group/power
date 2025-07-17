@@ -130,10 +130,10 @@ for file in readdir(folder)
                     end
                 end
             end
-
+            
             Random.seed!(1234)
             for i in 1:10
-                My_AC_model = nothing
+                My_ACT_model = nothing
                 data = nothing
                 cost = nothing
 
@@ -143,9 +143,9 @@ for file in readdir(folder)
                     PowerModels.standardize_cost_terms!(data, order=2)
                     PowerModels.calc_thermal_limits!(data)
 
-                    ac_factory = LinTMPOPFModelFactory(file_path, Ipopt.Optimizer)
-                    My_AC_model = create_model(ac_factory)
-                    optimize_model(My_AC_model)
+                    act_factory = LinTMPOPFModelFactory(file_path, Ipopt.Optimizer)
+                    My_ACT_model = create_model(act_factory)
+                    optimize_model(My_ACT_model)
                 end
 
                 lines2 = split(output2.output, '\n')
@@ -175,8 +175,8 @@ for file in readdir(folder)
                     #----------------------------------i Indexed Data ---------------------------------
 
                     #value for power generated
-                    pg_val = JuMP.value.(My_AC_model.model[:pg])
-                    qg_val = JuMP.value.(My_AC_model.model[:qg])
+                    pg_val = JuMP.value.(My_ACT_model.model[:pg])
+                    qg_val = JuMP.value.(My_ACT_model.model[:qg])
 
                     x = PowerModels.build_ref(data)[:it][:pm][:nw][0]
                     gen_data = x[:gen]
@@ -199,8 +199,8 @@ for file in readdir(folder)
                     #---------------------------------------Branch data----------------------------------
 
                     #value for voltage amplitude
-                    va_val = JuMP.value.(My_AC_model.model[:va])
-                    vm_val = JuMP.value.(My_AC_model.model[:vm])
+                    va_val = JuMP.value.(My_ACT_model.model[:va])
+                    vm_val = JuMP.value.(My_ACT_model.model[:vm])
 
                     for (i, branch) in x[:branch]
                         f_bus = branch["f_bus"]
@@ -223,5 +223,6 @@ for file in readdir(folder)
                 end
             end
         end
+        
     end
 end

@@ -251,7 +251,7 @@ module MPOPF
     include("graphing_class.jl")
     include("implementation-ac.jl")
     include("implementation-dc.jl")
-    include("implementation-ac-linear-test.jl")
+    #include("implementation-ac-linear-test.jl")
     include("implementation_uncertainty.jl")
     include("implementation-linear.jl")
     include("implementation-new_ac.jl")
