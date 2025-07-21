@@ -131,6 +131,7 @@ for file in readdir(folder)
                 end
             end
             
+
             Random.seed!(1234)
             for i in 1:10
                 My_ACT_model = nothing
@@ -143,7 +144,7 @@ for file in readdir(folder)
                     PowerModels.standardize_cost_terms!(data, order=2)
                     PowerModels.calc_thermal_limits!(data)
 
-                    act_factory = LinTMPOPFModelFactory(file_path, Ipopt.Optimizer)
+                    act_factory = DCMPOPFModelFactory(file_path, Ipopt.Optimizer)
                     My_ACT_model = create_model(act_factory)
                     optimize_model(My_ACT_model)
                 end
@@ -176,7 +177,7 @@ for file in readdir(folder)
 
                     #value for power generated
                     pg_val = JuMP.value.(My_ACT_model.model[:pg])
-                    qg_val = JuMP.value.(My_ACT_model.model[:qg])
+                    #qg_val = JuMP.value.(My_ACT_model.model[:qg])
 
                     x = PowerModels.build_ref(data)[:it][:pm][:nw][0]
                     gen_data = x[:gen]
@@ -184,10 +185,10 @@ for file in readdir(folder)
                     for i in pg_val.axes[2]
                         gen_bus = gen_data[i]["gen_bus"]
                         pg_at_i = pg_val[1, i]
-                        qg_at_i = qg_val[1, i]
+                        #qg_at_i = qg_val[1, i]
 
                         open(csvfilenamelinPG, "a") do io
-                            write(io, "$i,$gen_bus,$pg_at_i,$qg_at_i\n")
+                            write(io, "$i,$gen_bus,$pg_at_i\n")
                         end
                         
                     end
@@ -200,19 +201,19 @@ for file in readdir(folder)
 
                     #value for voltage amplitude
                     va_val = JuMP.value.(My_ACT_model.model[:va])
-                    vm_val = JuMP.value.(My_ACT_model.model[:vm])
+                    #vm_val = JuMP.value.(My_ACT_model.model[:vm])
 
                     for (i, branch) in x[:branch]
                         f_bus = branch["f_bus"]
-                        vm_from = vm_val[1, f_bus]
+                        #vm_from = vm_val[1, f_bus]
                         va_from = va_val[1, f_bus]
 
                         t_bus = branch["t_bus"]
-                        vm_to = vm_val[1, t_bus]
+                        #vm_to = vm_val[1, t_bus]
                         va_to = va_val[1, t_bus]
 
                         open(csvfilenamelin, "a") do io
-                            write(io, "$f_bus,$t_bus,$vm_from,$vm_to,$va_from,$va_to,$cost\n")
+                            write(io, "$f_bus,$t_bus,$va_from,$va_to,$cost\n")
                         end 
                     end
                 else

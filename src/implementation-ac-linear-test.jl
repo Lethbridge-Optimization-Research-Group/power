@@ -1,6 +1,6 @@
 using Distributions
 
-function set_model_variables!(power_flow_model::AbstractMPOPFModel, factory::ACMPOPFModelFactory)
+function set_model_variables!(power_flow_model::AbstractMPOPFModel, factory::LinTMPOPFModelFactory)
     model = power_flow_model.model
     T = power_flow_model.time_periods
     ref = PowerModels.build_ref(power_flow_model.data)[:it][:pm][:nw][0]
@@ -18,7 +18,7 @@ function set_model_variables!(power_flow_model::AbstractMPOPFModel, factory::ACM
     @variable(model, ramp_down[t in 2:T, g in keys(gen_data)] >= 0)
 end
 
-function set_model_objective_function!(power_flow_model::AbstractMPOPFModel, factory::ACMPOPFModelFactory)
+function set_model_objective_function!(power_flow_model::AbstractMPOPFModel, factory::LinTMPOPFModelFactory)
     model = power_flow_model.model
     data = power_flow_model.data
     T = power_flow_model.time_periods
@@ -35,7 +35,7 @@ function set_model_objective_function!(power_flow_model::AbstractMPOPFModel, fac
     )
 end
 
-function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::ACMPOPFModelFactory)
+function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::LinTMPOPFModelFactory)
     model = power_flow_model.model
     data = power_flow_model.data
     T = power_flow_model.time_periods
@@ -110,12 +110,13 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::A
             g_to = branch["g_to"]
             b_to = branch["b_to"]
 
-            @constraint(model, p_fr ==  (g+g_fr)/ttm*vm_fr^2 + (-g*tr+b*ti)/ttm*(vm_fr*vm_to*cos(va_fr-va_to)) + (-b*tr-g*ti)/ttm*(vm_fr*vm_to*sin(va_fr-va_to)) )
-            @constraint(model, q_fr == -(b+b_fr)/ttm*vm_fr^2 - (-b*tr-g*ti)/ttm*(vm_fr*vm_to*cos(va_fr-va_to)) + (-g*tr+b*ti)/ttm*(vm_fr*vm_to*sin(va_fr-va_to)) )
-
-            @constraint(model, p_to ==  (g+g_to)*vm_to^2 + (-g*tr-b*ti)/ttm*(vm_to*vm_fr*cos(va_to-va_fr)) + (-b*tr+g*ti)/ttm*(vm_to*vm_fr*sin(va_to-va_fr)) )
-            @constraint(model, q_to == -(b+b_to)*vm_to^2 - (-b*tr+g*ti)/ttm*(vm_to*vm_fr*cos(va_to-va_fr)) + (-g*tr-b*ti)/ttm*(vm_to*vm_fr*sin(va_to-va_fr)) )
-
+            @constraint(model, p_fr ==  (g+g_fr)/ttm*vm_fr^2 + (-g*tr+b*ti)/ttm*(0.5042084743962969*vm_fr^2+0.5032217155898757*vm_to^2-0.022411308142930787*va_fr+0.007495337723430631*va_to-0.012301401193273165) + (-b*tr-g*ti)/ttm*(-0.00172351897934318*vm_fr^2+0.005607659368881494*vm_to^2+1.0241445591684628*va_fr-1.025189439104993*va_to-0.004433921484692217) )
+            @constraint(model, q_fr == -(b+b_fr)/ttm*vm_fr^2 - (-b*tr-g*ti)/ttm*(0.5042084743962969*vm_fr^2+0.5032217155898757*vm_to^2-0.022411308142930787*va_fr+0.007495337723430631*va_to-0.012301401193273165) + (-b*tr-g*ti)/ttm*(-0.00172351897934318*vm_fr^2+0.005607659368881494*vm_to^2+1.0241445591684628*va_fr-1.025189439104993*va_to-0.004433921484692217))
+    
+            # To side of the branch flow
+            @constraint(model, p_to ==  (g+g_to)*vm_to^2 + (-g*tr-b*ti)/ttm*(0.5042084743962969*vm_fr^2+0.5032217155898757*vm_to^2-0.022411308142930787*va_fr+0.007495337723430631*va_to-0.012301401193273165) + (-b*tr+g*ti)/ttm*(+0.00172351897934318*vm_fr^2-0.005607659368881494*vm_to^2-1.0241445591684628*va_fr+1.025189439104993*va_to+0.004433921484692217))
+            @constraint(model, q_to == -(b+b_to)*vm_to^2 - (-b*tr+g*ti)/ttm*(0.5042084743962969*vm_fr^2+0.5032217155898757*vm_to^2-0.022411308142930787*va_fr+0.007495337723430631*va_to-0.012301401193273165) + (-g*tr-b*ti)/ttm*(+0.00172351897934318*vm_fr^2-0.005607659368881494*vm_to^2-1.0241445591684628*va_fr+1.025189439104993*va_to+0.004433921484692217))
+            
             @constraint(model, va_fr - va_to <= branch["angmax"])
             @constraint(model, va_fr - va_to >= branch["angmin"])
 
@@ -139,7 +140,7 @@ function sampling(i::String)
         d = rand(Uniform(.9,1.1))
     else
         mu = 1
-        sigma = 0.1
+        sigma = 0.01
         d = rand(Normal(mu, sigma))
     end
     return d
