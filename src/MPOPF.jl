@@ -16,7 +16,7 @@ module MPOPF
     # Exporting these functions from the module so we dont have to prefix them with MPOPF.
 
     # Export of this file
-    export create_model, create_search_model, optimize_model, ACMPOPFModelFactory, DCMPOPFModelFactory, optimize_model_with_plot, LinMPOPFModelFactory, NewACMPOPFModelFactory, DCMPOPFSearchFactory, create_model_check_feasibility, get_ref
+    export create_model, create_search_model, create_model_demand, optimize_model, ACMPOPFModelFactory, DCMPOPFModelFactory, optimize_model_with_plot, LinMPOPFModelFactory, NewACMPOPFModelFactory, DCMPOPFSearchFactory, create_model_check_feasibility, get_ref
 
     # Export of implementation_uncertainty.jl
     export generate_random_load_scenarios, setup_demand_distributions, sample_demand_scenarios, return_loads
@@ -251,7 +251,7 @@ module MPOPF
     include("graphing_class.jl")
     include("implementation-ac.jl")
     include("implementation-dc.jl")
-    include("implementation-ac-linear-test.jl")
+    #include("implementation-ac-linear-test.jl")
     include("implementation_uncertainty.jl")
     include("implementation-linear.jl")
     include("implementation-new_ac.jl")
@@ -296,6 +296,35 @@ module MPOPF
         return power_flow_model
     end
 
+    """
+    create_model(factory::AbstractMPOPFModelFactory; time_periods::Int64=1, factors::Vector{Float64}=[1.0], ramping_cost::Int64=0, model_type=undef, i::Int64)::MPOPFModel
+    Create a Multi-Period Optimal Power Flow (MPOPF) model.
+    The factory passed in defines the type of model that will be returned
+    If `LinMPOPFModelFactory` is passed in as the factory then `model_type` needs to be specified.
+    # Arguments
+    - `factory`: The factory used to create the specific type of MPOPF model.
+    - `time_periods`: Number of time periods to consider in the model. Default is 1.
+    - `factors`: Scaling factors for each time period. Default is [1.0].
+    - `ramping_cost`: Cost associated with ramping generation up or down. Default is 0.
+    - `model_type`: Optional parameter to specify a particular model type. Default is undef.
+    # Returns
+    An `MPOPFModel` object representing the created MPOPF model.
+    """
+    function create_model_demand(factory::ACMPOPFModelFactory; time_periods::Int64=1, factors::Vector{Float64}=[1.0], ramping_cost::Int64=0, model_type=undef, i::Int64=0)::MPOPFModel
+        data = PowerModels.parse_file(factory.file_path)
+        PowerModels.standardize_cost_terms!(data, order=2)
+        PowerModels.calc_thermal_limits!(data)
+
+        model = JuMP.Model(factory.optimizer)
+
+        power_flow_model = MPOPFModel(model, data, time_periods, factors, ramping_cost)
+
+        set_model_variables!(power_flow_model, factory)
+        set_model_objective_function!(power_flow_model, factory)
+        model_type !== undef ? set_model_constraints!(power_flow_model, factory, model_type) : set_model_constraints!(power_flow_model, factory, i)
+    
+        return power_flow_model
+    end
     # The second create_model fucntion creates a PowerFlowModelUncertainty object
     # Similarly it creates the right model depending on the factory passed as the first paramenter
     # However now we are passing the scenarios as parameters too
