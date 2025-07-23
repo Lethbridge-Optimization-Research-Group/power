@@ -16,7 +16,7 @@ module MPOPF
     # Exporting these functions from the module so we dont have to prefix them with MPOPF.
 
     # Export of this file
-    export create_model, create_search_model, create_model_demand, optimize_model, ACMPOPFModelFactory, DCMPOPFModelFactory, optimize_model_with_plot, LinMPOPFModelFactory, NewACMPOPFModelFactory, DCMPOPFSearchFactory, create_model_check_feasibility, get_ref
+    export create_model, create_search_model, create_model_demand, optimize_model, ACMPOPFModelFactory, LinTMPOPFModelFactory, DCMPOPFModelFactory, optimize_model_with_plot, LinMPOPFModelFactory, NewACMPOPFModelFactory, DCMPOPFSearchFactory, create_model_check_feasibility, get_ref
 
     # Export of implementation_uncertainty.jl
     export generate_random_load_scenarios, setup_demand_distributions, sample_demand_scenarios, return_loads
@@ -87,6 +87,23 @@ module MPOPF
         end
     end
 
+    """
+    LinTMPOPFModelFactory <: AbstractMPOPFModelFactory
+    Factory for testing linearized MPOPF models.
+    If this factory is used then `model_type` needs to be specified
+    in the `create_model()` function.
+    # Fields
+    - `file_path::String`: Path to the input data file.
+    - `optimizer::Type`: The optimizer to be used.
+    """
+    mutable struct LinTMPOPFModelFactory <: AbstractMPOPFModelFactory
+        file_path::String
+        optimizer::Type
+
+        function LinTMPOPFModelFactory(file_path::String, optimizer::Type)
+            return new(file_path, optimizer)
+        end
+    end
     # This struct "inherits" from PowerFlowModelFactory
     """
         DCMPOPFModelFactory <: AbstractMPOPFModelFactory
@@ -118,23 +135,6 @@ module MPOPF
         optimizer::Type
 
         function LinMPOPFModelFactory(file_path::String, optimizer::Type)
-            return new(file_path, optimizer)
-        end
-    end
-    """
-        LinTMPOPFModelFactory <: AbstractMPOPFModelFactory
-    Factory for testing linearized MPOPF models.
-    If this factory is used then `model_type` needs to be specified
-    in the `create_model()` function.
-    # Fields
-    - `file_path::String`: Path to the input data file.
-    - `optimizer::Type`: The optimizer to be used.
-    """
-    mutable struct LinTMPOPFModelFactory <: AbstractMPOPFModelFactory
-        file_path::String
-        optimizer::Type
-
-        function LinTMPOPFModelFactory(file_path::String, optimizer::Type)
             return new(file_path, optimizer)
         end
     end
@@ -251,7 +251,7 @@ module MPOPF
     include("graphing_class.jl")
     include("implementation-ac.jl")
     include("implementation-dc.jl")
-    #include("implementation-ac-linear-test.jl")
+    include("implementation-ac-linear-test.jl")
     include("implementation_uncertainty.jl")
     include("implementation-linear.jl")
     include("implementation-new_ac.jl")
@@ -310,7 +310,7 @@ module MPOPF
     # Returns
     An `MPOPFModel` object representing the created MPOPF model.
     """
-    function create_model_demand(factory::ACMPOPFModelFactory; time_periods::Int64=1, factors::Vector{Float64}=[1.0], ramping_cost::Int64=0, model_type=undef, i::Int64=0)::MPOPFModel
+    function create_model_demand(factory::AbstractMPOPFModelFactory; time_periods::Int64=1, factors::Vector{Float64}=[1.0], ramping_cost::Int64=0, model_type=undef, i::Int64=0)::MPOPFModel
         data = PowerModels.parse_file(factory.file_path)
         PowerModels.standardize_cost_terms!(data, order=2)
         PowerModels.calc_thermal_limits!(data)
@@ -321,8 +321,9 @@ module MPOPF
 
         set_model_variables!(power_flow_model, factory)
         set_model_objective_function!(power_flow_model, factory)
-        model_type !== undef ? set_model_constraints!(power_flow_model, factory, model_type) : set_model_constraints!(power_flow_model, factory, i)
-    
+        if factory isa ACMPOPFModelFactory || factory isa LinTMPOPFModelFactory
+            model_type !== undef ? set_model_constraints!(power_flow_model, factory, model_type) : set_model_constraints!(power_flow_model, factory, i)
+        end
         return power_flow_model
     end
     # The second create_model fucntion creates a PowerFlowModelUncertainty object

@@ -35,7 +35,8 @@ function set_model_objective_function!(power_flow_model::AbstractMPOPFModel, fac
     )
 end
 
-function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::LinTMPOPFModelFactory)
+function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::LinTMPOPFModelFactory, i::Int64)
+    id = i
     model = power_flow_model.model
     data = power_flow_model.data
     T = power_flow_model.time_periods
@@ -66,21 +67,27 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::L
 		# 
         for (i, bus) in ref[:bus]
             #d = sampling("Normal")
-            df = csv.read("Cases/100d.csv")
+            df = CSV.read("Cases/100d.csv", DataFrame)  # assumes header exists
+            d_val = id == 0 ? 1.0 : df[id, :d] 
+            verify = CSV.read("Cases/100d_verify.csv", DataFrame)
+            open("Cases/100d_verify.csv", "a") do io
+                write(io, "$d_val\n")
+            end 
+   
             bus_loads = [load_data[l] for l in ref[:bus_loads][i]]
             bus_shunts = [ref[:shunt][s] for s in ref[:bus_shunts][i]]
 
             @constraint(model,
                 sum(p[t,a] for a in ref[:bus_arcs][i]) ==
                 sum(pg[t, g] for g in ref[:bus_gens][i]) -
-                sum(load["pd"] * d* factors[t] for load in bus_loads) -
+                sum(load["pd"] * d_val * factors[t] for load in bus_loads) -
                 sum(shunt["gs"] for shunt in bus_shunts)*vm[t,i]^2
             )
 
             @constraint(model,
                 sum(q[t,a] for a in ref[:bus_arcs][i]) ==
                 sum(qg[t, g] for g in ref[:bus_gens][i]) -
-                sum(load["qd"] * d * factors[t] for load in bus_loads) +
+                sum(load["qd"] * d_val * factors[t] for load in bus_loads) +
                 sum(shunt["bs"] for shunt in bus_shunts)*vm[t,i]^2
             )
         end
@@ -132,16 +139,4 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::L
             @constraint(model, ramp_down[t, g] >= pg[t-1, g] - pg[t, g])
         end
     end
-end
-
-function sampling(i::String)
-    d = nothing
-    if i == "Uniform"
-        d = rand(Uniform(.9,1.1))
-    else
-        mu = 1
-        sigma = 0.01
-        d = rand(Normal(mu, sigma))
-    end
-    return d
 end
