@@ -38,15 +38,7 @@ function getData(foldertosave::String,folder::String, model_type::String)
                     cost = nothing
 
                     output = IOCapture.capture() do
-                        My_AC_model = nothing
-                        ac_factory = nothing
-                        data = PowerModels.parse_file(file_path)
-                        PowerModels.standardize_cost_terms!(data, order=2)
-                        PowerModels.calc_thermal_limits!(data)
-                        ac_factory = ACMPOPFModelFactory(file_path, Ipopt.Optimizer)
-                        My_AC_model = create_model_demand(ac_factory; i = j)
-
-                        #My_AC_model, data = runModel(model_type, file_path, j)
+                        My_AC_model, data = runModel(model_type, file_path, j)
                         optimize_model(My_AC_model)
                     end
 
@@ -161,7 +153,7 @@ function run()
 
     getData(foldertosave, folder, "AC")
     compareD() ? println("Same") : println("Different")
-#=
+
     if compareD()
         foldertosave = joinpath(folder, "data/Approx")
         mkpath(foldertosave)
@@ -174,7 +166,6 @@ function run()
     else
         println("AC did not run with correct d")
     end
-=#
 end
 
 run()
