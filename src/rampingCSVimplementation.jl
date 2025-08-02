@@ -70,7 +70,7 @@ end
 
 function generate_power_system_csv(data::Dict, output_dir::String, num_periods::Int=24)
     
-    Random.seed!(42)
+    Random.seed!()
     
     # Extract case name
     case_name = basename(data["name"])
@@ -201,7 +201,7 @@ function generate_daily_demand_profile(base_demand::Float64, hour::Int)
     - Evening decline: 8 PM-midnight (1.0-0.6x base)
     """
     
-    Random.seed!(42)
+    Random.seed!()
 
     if hour >= 1 && hour <= 6  # Midnight to 6 AM - lowest demand
         # Gradual decrease from midnight, then gradual increase toward 6 AM
@@ -252,7 +252,7 @@ function generate_daily_demand_csv(data::Dict, output_dir::String, num_periods::
         ramp_limit = pmax * (ramp_percent / 100)
 
         # Generate random ramping cost
-        ramp_cost = rand(1000:5000) ### RAMP COST ### 
+        ramp_cost = rand(10:50) ### RAMP COST ### 
 
         push!(gen_data, (
             gen["index"],
@@ -297,7 +297,7 @@ function generate_daily_demand_csv(data::Dict, output_dir::String, num_periods::
     base_demand_per_bus = [get(demand_dict, bus_id, 0.0) for bus_id in bus_ids]
 
     # Generate realistic daily demand pattern for each time period
-    Random.seed!(42)  # For reproducibility - change or remove for random patterns
+    Random.seed!()  # For reproducibility - change or remove for random patterns
     demands = []
 
     for hour in 1:num_periods
@@ -345,7 +345,7 @@ function generate_daily_demand_csv(data::Dict, output_dir::String, num_periods::
     for (idx, bus_id) in enumerate(bus_ids)
         print(csv_content, bus_id)
         for period in 1:num_periods
-            print(csv_content, ",", round(demands[period][idx], digits=4))
+            print(csv_content, ",", demands[period][idx])
         end
         println(csv_content)
     end
