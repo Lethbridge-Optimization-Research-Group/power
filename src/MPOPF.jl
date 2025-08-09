@@ -322,7 +322,17 @@ module MPOPF
         set_model_variables!(power_flow_model, factory)
         set_model_objective_function!(power_flow_model, factory)
         if factory isa ACMPOPFModelFactory || factory isa LinTMPOPFModelFactory
-            model_type !== undef ? set_model_constraints!(power_flow_model, factory, model_type) : set_model_constraints!(power_flow_model, factory, i)
+            if factory isa LinTMPOPFModelFactory
+                case = nothing
+                m = match(r"case(\d+)", string(factory.file_path))
+                if m !== nothing
+                    case = parse(Int, m.captures[1]) 
+                end
+
+                model_type !== undef ? set_model_constraints!(power_flow_model, factory, model_type) : set_model_constraints!(power_flow_model, factory, i, case)
+            else
+                model_type !== undef ? set_model_constraints!(power_flow_model, factory, model_type) : set_model_constraints!(power_flow_model, factory, i)
+            end
         end
         return power_flow_model
     end

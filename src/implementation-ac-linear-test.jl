@@ -35,7 +35,7 @@ function set_model_objective_function!(power_flow_model::AbstractMPOPFModel, fac
     )
 end
 
-function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::LinTMPOPFModelFactory, i::Int64)
+function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::LinTMPOPFModelFactory, i::Int64, case::Int64)
     id = i
     model = power_flow_model.model
     data = power_flow_model.data
@@ -93,9 +93,16 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::L
         end
 
 		# active ( p ) and reactive ( q ) power constraints
+
+        df_branch = CSV.read("Cases/test/data/branch_specific/scenario_results_case$case.csv", DataFrame)  # assumes header exists
         for (i, branch) in ref[:branch]
             f_idx = (i, branch["f_bus"], branch["t_bus"])
             t_idx = (i, branch["t_bus"], branch["f_bus"])
+            idx = string( branch["f_bus"], "_",  branch["t_bus"])
+            id = findfirst(==(idx), df_branch.line_id)
+            open("Cases/output.csv", "a") do io
+                write(io, "$case")
+            end 
 
             p_to = p[t,t_idx]
             q_to = q[t,t_idx]
@@ -117,12 +124,12 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::L
             g_to = branch["g_to"]
             b_to = branch["b_to"]
 
-            @constraint(model, p_fr ==  (g+g_fr)/ttm*vm_fr^2 + (-g*tr+b*ti)/ttm*(0.5042084743962969*vm_fr^2+0.5032217155898757*vm_to^2-0.022411308142930787*va_fr+0.007495337723430631*va_to-0.012301401193273165) + (-b*tr-g*ti)/ttm*(-0.00172351897934318*vm_fr^2+0.005607659368881494*vm_to^2+1.0241445591684628*va_fr-1.025189439104993*va_to-0.004433921484692217) )
-            @constraint(model, q_fr == -(b+b_fr)/ttm*vm_fr^2 - (-b*tr-g*ti)/ttm*(0.5042084743962969*vm_fr^2+0.5032217155898757*vm_to^2-0.022411308142930787*va_fr+0.007495337723430631*va_to-0.012301401193273165) + (-b*tr-g*ti)/ttm*(-0.00172351897934318*vm_fr^2+0.005607659368881494*vm_to^2+1.0241445591684628*va_fr-1.025189439104993*va_to-0.004433921484692217))
+            @constraint(model, p_fr ==  (g+g_fr)/ttm*vm_fr^2 + (-g*tr+b*ti)/ttm*(df_branch[id, :y_cos_f_w1_vm_from]*vm_fr^2+df_branch[id, :y_cos_f_w2_vm_to]*vm_to^2+df_branch[id, :y_cos_f_w3_theta_i]*va_fr+df_branch[id, :y_cos_f_w4_theta_j]*va_to+df_branch[id, :y_cos_f_bias]) + (-b*tr-g*ti)/ttm*(df_branch[id,  :y_sin_f_w1_vm_from]*vm_fr^2+df_branch[id,  :y_sin_f_w2_vm_to]*vm_to^2+df_branch[id,  :y_sin_f_w3_theta_i]*va_fr+df_branch[id,  :y_sin_f_w4_theta_j]*va_to+df_branch[id,  :y_sin_f_bias]) )
+            @constraint(model, q_fr == -(b+b_fr)/ttm*vm_fr^2 - (-b*tr-g*ti)/ttm*(df_branch[id, :y_cos_f_w1_vm_from]*vm_fr^2+df_branch[id, :y_cos_f_w2_vm_to]*vm_to^2+df_branch[id, :y_cos_f_w3_theta_i]*va_fr+df_branch[id, :y_cos_f_w4_theta_j]*va_to+df_branch[id, :y_cos_f_bias]) + (-b*tr-g*ti)/ttm*(df_branch[id,  :y_sin_f_w1_vm_from]*vm_fr^2+df_branch[id,  :y_sin_f_w2_vm_to]*vm_to^2+df_branch[id,  :y_sin_f_w3_theta_i]*va_fr+df_branch[id,  :y_sin_f_w4_theta_j]*va_to+df_branch[id,  :y_sin_f_bias]))
     
             # To side of the branch flow
-            @constraint(model, p_to ==  (g+g_to)*vm_to^2 + (-g*tr-b*ti)/ttm*(0.5042084743962969*vm_fr^2+0.5032217155898757*vm_to^2-0.022411308142930787*va_fr+0.007495337723430631*va_to-0.012301401193273165) + (-b*tr+g*ti)/ttm*(+0.00172351897934318*vm_fr^2-0.005607659368881494*vm_to^2-1.0241445591684628*va_fr+1.025189439104993*va_to+0.004433921484692217))
-            @constraint(model, q_to == -(b+b_to)*vm_to^2 - (-b*tr+g*ti)/ttm*(0.5042084743962969*vm_fr^2+0.5032217155898757*vm_to^2-0.022411308142930787*va_fr+0.007495337723430631*va_to-0.012301401193273165) + (-g*tr-b*ti)/ttm*(+0.00172351897934318*vm_fr^2-0.005607659368881494*vm_to^2-1.0241445591684628*va_fr+1.025189439104993*va_to+0.004433921484692217))
+            @constraint(model, p_to ==  (g+g_to)*vm_to^2 + (-g*tr-b*ti)/ttm*(df_branch[id, :y_cos_f_w1_vm_from]*vm_fr^2+df_branch[id, :y_cos_f_w2_vm_to]*vm_to^2+df_branch[id, :y_cos_f_w3_theta_i]*va_fr+df_branch[id, :y_cos_f_w4_theta_j]*va_to+df_branch[id, :y_cos_f_bias]) + (-b*tr+g*ti)/ttm*(-df_branch[id,  :y_sin_f_w1_vm_from]*vm_fr^2-df_branch[id,  :y_sin_f_w2_vm_to]*vm_to^2-df_branch[id,  :y_sin_f_w3_theta_i]*va_fr-df_branch[id,  :y_sin_f_w4_theta_j]*va_to-df_branch[id,  :y_sin_f_bias]))
+            @constraint(model, q_to == -(b+b_to)*vm_to^2 - (-b*tr+g*ti)/ttm*(df_branch[id, :y_cos_f_w1_vm_from]*vm_fr^2+df_branch[id, :y_cos_f_w2_vm_to]*vm_to^2+df_branch[id, :y_cos_f_w3_theta_i]*va_fr+df_branch[id, :y_cos_f_w4_theta_j]*va_to+df_branch[id, :y_cos_f_bias]) + (-g*tr-b*ti)/ttm*(-df_branch[id,  :y_sin_f_w1_vm_from]*vm_fr^2-df_branch[id,  :y_sin_f_w2_vm_to]*vm_to^2-df_branch[id,  :y_sin_f_w3_theta_i]*va_fr-df_branch[id,  :y_sin_f_w4_theta_j]*va_to-df_branch[id,  :y_sin_f_bias]))
             
             @constraint(model, va_fr - va_to <= branch["angmax"])
             @constraint(model, va_fr - va_to >= branch["angmin"])

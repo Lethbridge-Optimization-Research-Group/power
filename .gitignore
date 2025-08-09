@@ -8,3 +8,5 @@ large_results/
 Cases/test/
 *.zip
 *.csv
+*.env
+powerenv/

@@ -23,7 +23,7 @@ function sampling(i::String)
         d = rand(Uniform(.9,1.1))
     else
         mu = 1
-        sigma = 0.1
+        sigma = 0.05
         d = rand(Normal(mu, sigma))
     end
     return d
