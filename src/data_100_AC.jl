@@ -149,15 +149,14 @@ end
 function runGen()
     folder = "Cases/test"
     foldertosave = joinpath(folder, "data/AC")
-    #foldertosave = joinpath(folder, "data/Approx")
-
     mkpath(foldertosave)
 
     getData(foldertosave, folder, "AC")
     compareD() ? println("Same") : println("Different")
-    run(`python3 getCoefficients.py`)
+    run(`powerenv/bin/python3 src/getCoefficients.py`)
 
     if compareD()
+        foldertosave = joinpath(folder, "data/Approx")
         mkpath(foldertosave)
         getData(foldertosave, folder, "Approx")
         if compareD()
@@ -166,7 +165,7 @@ function runGen()
             println("AC ran with correct d, Approx did not")
         end
     else
-        println("Did not run with correct d")
+        println("AC did not run with correct d")
     end
 end
 

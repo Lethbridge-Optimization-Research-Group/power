@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 import re
+import os
 from sklearn.linear_model import LinearRegression
 
 folder_path = Path("Cases/test/data/AC")
@@ -70,4 +71,9 @@ for file_path in folder_path.iterdir():
             results.append(row)
 
         df_results = pd.DataFrame(results)
-        df_results.to_csv(f'Cases/test/data/branch_specific/scenario_results_case{case}.csv', index=False)
+        output_dir = 'Cases/test/data/branch_specific'
+        os.makedirs(output_dir, exist_ok=True)  # create directory if it doesn't exist
+
+        df_results.to_csv(f'{output_dir}/scenario_results_case{case}.csv', index=False)
+
+        #df_results.to_csv(f'Cases/test/data/branch_specific/scenario_results_case{case}.csv', index=False)
