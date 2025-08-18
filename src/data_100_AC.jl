@@ -154,6 +154,7 @@ function runGen()
     getData(foldertosave, folder, "AC")
     compareD() ? println("Same") : println("Different")
     run(`powerenv/bin/python3 src/getCoefficients.py`)
+    run(`powerenv/bin/python3 src/updateCoefficients.py`)
 
     if compareD()
         foldertosave = joinpath(folder, "data/Approx")

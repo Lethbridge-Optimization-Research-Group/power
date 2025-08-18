@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 import os
 from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import Ridge
 
 folder_path = Path("Cases/test/data/AC")
 pattern = re.compile(r"^case\d+\.csv$")
@@ -60,6 +61,7 @@ for file_path in folder_path.iterdir():
                 y = df_line[target].values
 
                 model = LinearRegression()
+                #model = Ridge(alpha=1.0)
                 model.fit(X, y)
 
                 row[f'{target}_w1_vm_from'] = model.coef_[0]
