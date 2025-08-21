@@ -9,6 +9,7 @@ using Random
 const PM = PowerModels
 
 function getData(foldertosave::String,folder::String, model_type::String)
+    #folder = joinpath(folder, "matpower8.0/data")
     for file in readdir(folder)
         file_path = joinpath(folder, file)
         println("Processing file: $file_path")
@@ -154,7 +155,7 @@ function runGen()
     getData(foldertosave, folder, "AC")
     compareD() ? println("Same") : println("Different")
     run(`powerenv/bin/python3 src/getCoefficients.py`)
-    run(`powerenv/bin/python3 src/updateCoefficients.py`)
+    #run(`powerenv/bin/python3 src/updateCoefficients.py`)
 
     if compareD()
         foldertosave = joinpath(folder, "data/Approx")

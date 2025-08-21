@@ -6,25 +6,29 @@ import os
 from sklearn.linear_model import LinearRegression
 from sklearn.linear_model import Ridge
 
+from pathlib import Path
+
 folder_path = Path("Cases/test/data/AC")
-pattern = re.compile(r"^case\d+\.csv$")
 
 for file_path in folder_path.iterdir():
-    if file_path.is_file() and pattern.match(file_path.name):
-
-        # Extract number from file name
-        match = re.search(r"case(\d+)", file_path.name)
+    if (
+        file_path.is_file()
+        and file_path.suffix == ".csv"
+        and file_path.name.startswith("case")
+        and not file_path.name.endswith("-pg.csv")
+    ):
+        # Extract full case name (e.g., "30Q" from "case30Q.csv")
+        match = re.match(r"case(.+)", file_path.stem)
         if match:
-            case = int(match.group(1))
+            case = match.group(1)
             print(f"Processing case {case} from file {file_path.name}")
         else:
-            print(f"No case number found in {file_path.name}")
+            print(f"No case name found in {file_path.name}")
             continue
 
         # Read the CSV
         df = pd.read_csv(file_path)
-        # Now you can process df as needed
-
+        # process df here
 
         # create id
         df["line_id"] = df["Bus_from"].astype(str) + "_" + df["Bus_to"].astype(str)

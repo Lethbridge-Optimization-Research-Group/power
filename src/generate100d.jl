@@ -22,8 +22,8 @@ function sampling(i::String)
     if i == "Uniform"
         d = rand(Uniform(.9,1.1))
     else
-        mu = 1
-        sigma = 0.05
+        mu = 0.95
+        sigma = 0.03
         d = rand(Normal(mu, sigma))
     end
     return d
