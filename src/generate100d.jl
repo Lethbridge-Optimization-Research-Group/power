@@ -2,14 +2,14 @@ using CSV
 using Random
 using Distributions
 
-function genDValues()
-    csvfilename = "Cases/100d.csv"
+function genDValues(val::Int)
+    csvfilename = "Cases/test/data/dvalues/Cases$(val)d.csv"
     d = nothing
     open(csvfilename, "w") do io
         write(io, "d\n")
     end
-
-    for i in 1:100
+    val = val * 100
+    for i in 1:val
         d = sampling("Normal") 
         open(csvfilename, "a") do io
             write(io, "$d\n")
@@ -22,11 +22,11 @@ function sampling(i::String)
     if i == "Uniform"
         d = rand(Uniform(.9,1.1))
     else
-        mu = 0.95
-        sigma = 0.03
+        mu = 1
+        sigma = 0.05
         d = rand(Normal(mu, sigma))
     end
     return d
 end
 
-genDValues()
+#genDValues(5)
