@@ -29,8 +29,13 @@ for file_path in folder_path.iterdir():
         # Read the CSV
         df = pd.read_csv(file_path)
         # process df here
+        df = df[~df.apply(lambda row: row.astype(str).str.contains("Infeasible").any(), axis=1)]
 
         # create id
+        # Ensure Bus_to is integer
+        df["Bus_from"] = df["Bus_from"].astype(int)
+        df["Bus_to"] = df["Bus_to"].astype(int)
+
         df["line_id"] = df["Bus_from"].astype(str) + "_" + df["Bus_to"].astype(str)
         df_sorted = df.sort_values(by=["Bus_from", "Bus_to"])
         grouped = df_sorted.groupby(["Bus_from", "Bus_to"], sort=False)

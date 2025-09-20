@@ -8,9 +8,14 @@ using IOCapture
 using Random
 const PM = PowerModels
 
+include("generateD.jl")
+
+scenarios = 2
+
 function getData(foldertosave::String,folder::String, model_type::String)
     #folder = joinpath(folder, "matpower8.0/data")
     for file in readdir(folder)
+        case_number = nothing
         file_path = joinpath(folder, file)
         println("Processing file: $file_path")
         filename = splitext(file)[1]
@@ -19,6 +24,12 @@ function getData(foldertosave::String,folder::String, model_type::String)
             filename = joinpath(foldertosave, filename)
             csvfilename = "$(filename).csv"
             csvfilenamePG = "$(filename)-pg.csv"
+
+            m = match(r"case.*?(\d+)", file)   # look for "Case" followed by digits
+            if m !== nothing
+                case_number = parse(Int, m.captures[1])
+            end
+
             open(csvfilename, "w") do io
                 write(io, "\nBus_from,Bus_to,volatge_magnitude_from,volatge_magnitude_to,theta_from,theta_to,cost \n")
             end
@@ -27,17 +38,20 @@ function getData(foldertosave::String,folder::String, model_type::String)
                 write(io, "Index,GeneratorBus,PowerGenerated,ReactivePowerGenerated\n")
             end
 
-            open("Cases/100d_verify.csv", "w") do io
+            generateDValues(case_number, model_type)
+
+            open("Cases/$(scenarios)d_verify.csv", "w") do io
                 write(io, "d\n")
             end
 
             if extension == ".m"
-                Random.seed!(1234)
-                for j in 1:100
+                #Random.seed!(1234)
+                for j in 1:scenarios
                     My_AC_model = nothing
                     data = nothing
                     cost = nothing
 
+            
                     output = IOCapture.capture() do
                         My_AC_model, data = runModel(model_type, file_path, j)
                         optimize_model(My_AC_model)
@@ -113,10 +127,29 @@ function getData(foldertosave::String,folder::String, model_type::String)
                     open(csvfilename, "a") do io
                         write(io, "\n")
                     end
-                end               
+                end
+                if compareD() 
+                    println("Same")
+                else
+                    error("Did not read correctly from d values file $file")              
+                end
             end
         end
     end
+end
+
+function generateDValues(case_number::Int, model_type::String)
+    #copy from the generated file to $(scenarios)d.csv to be used bu all other method
+    #cp("Cases/test/data/dvalues/Cases$(case_number)d.csv", "Cases/$(scenarios)d.csv"; force = true)
+    if(model_type != "Approx")
+        println("Generating d values")
+        genDValues(case_number, scenarios)
+    end
+
+    src = joinpath("Cases", "test", "data", "dvalues", "Cases$(case_number)d.csv")
+    dest = joinpath("Cases", "$(scenarios)d.csv")
+
+    cp(src, dest; force=true)
 end
 
 function runModel(model_type::String, file_path::String, j::Int64)
@@ -139,11 +172,11 @@ end
 
 function compareD()
     #comparing d values to check if it was used correctly
-    df1 = CSV.read("Cases/100d_verify.csv", DataFrame)
+    df1 = CSV.read("Cases/$(scenarios)d_verify.csv", DataFrame)
     df_unique = unique(df1)
-    CSV.write("Cases/100d_verify.csv", df_unique) 
+    CSV.write("Cases/$(scenarios)d_verify.csv", df_unique) 
     
-    df2 = CSV.read("Cases/100d.csv", DataFrame)
+    df2 = CSV.read("Cases/$(scenarios)d.csv", DataFrame)
     return (isequal(df_unique, df2) ? true : false)
 end
 
@@ -154,22 +187,13 @@ function runGen()
     mkpath(foldertosave)
 
     getData(foldertosave, folder, "AC")
-    compareD() ? println("Same") : println("Different")
     run(`powerenv/bin/python3 src/getCoefficients.py`)
-    run(`powerenv/bin/python3 src/updateCoefficients.py`)
+    #run(`powerenv/bin/python3 src/updateCoefficients.py`)
 
-    if compareD()
-        foldertosave = joinpath(folder, "data/Approx")
-        mkpath(foldertosave)
-        getData(foldertosave, folder, "Approx")
-        if compareD()
-            println("All ran with same d")
-        else
-            println("AC ran with correct d, Approx did not")
-        end
-    else
-        println("AC did not run with correct d")
-    end
+    foldertosave = joinpath(folder, "data/Approx")
+    mkpath(foldertosave)
+    getData(foldertosave, folder, "Approx")
+
 end
 
 runGen()

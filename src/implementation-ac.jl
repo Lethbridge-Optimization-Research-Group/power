@@ -38,7 +38,7 @@ function set_model_objective_function!(power_flow_model::AbstractMPOPFModel, fac
 end
 
 function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::ACMPOPFModelFactory, i::Int64)
-    id = i
+    scenario_id = i
     model = power_flow_model.model
     data = power_flow_model.data
     T = power_flow_model.time_periods
@@ -66,13 +66,17 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::A
             @constraint(model, va[t,i] == 0)
         end
 
-		# 
+        case = length(ref[:bus])
+        bus_index = 1
         for (i, bus) in ref[:bus]
             #d = sampling("Normal")
-            df = CSV.read("Cases/100d.csv", DataFrame)  # assumes header exists
+            scenarios = 2
+            df = CSV.read("Cases/$(scenarios)d.csv", DataFrame)  # assumes header exists
+            id = (scenario_id - 1)*case + bus_index
+            bus_index = bus_index + 1
             d_val = id == 0 ? 1.0 : df[id, :d] 
-            verify = CSV.read("Cases/100d_verify.csv", DataFrame)
-            open("Cases/100d_verify.csv", "a") do io
+
+            open("Cases/$(scenarios)d_verify.csv", "a") do io
                 write(io, "$d_val\n")
             end 
    
@@ -140,16 +144,4 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::A
             @constraint(model, ramp_down[t, g] >= pg[t-1, g] - pg[t, g])
         end
     end
-end
-
-function sampling(i::String)
-    d = nothing
-    if i == "Uniform"
-        d = rand(Uniform(.9,1.1))
-    else
-        mu = 1
-        sigma = 0.1
-        d = rand(Normal(mu, sigma))
-    end
-    return d
 end

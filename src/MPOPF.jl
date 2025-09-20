@@ -323,11 +323,8 @@ module MPOPF
         set_model_objective_function!(power_flow_model, factory)
         if factory isa ACMPOPFModelFactory || factory isa LinTMPOPFModelFactory
             if factory isa LinTMPOPFModelFactory
-                case = nothing
-                m = match(r"case(\d+)", string(factory.file_path))
-                if m !== nothing
-                    case = parse(Int, m.captures[1]) 
-                end
+                case_name = basename(factory.file_path)
+                case = splitext(case_name)[1]
 
                 model_type !== undef ? set_model_constraints!(power_flow_model, factory, model_type) : set_model_constraints!(power_flow_model, factory, i, case)
             else

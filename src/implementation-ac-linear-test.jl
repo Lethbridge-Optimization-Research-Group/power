@@ -35,8 +35,8 @@ function set_model_objective_function!(power_flow_model::AbstractMPOPFModel, fac
     )
 end
 
-function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::LinTMPOPFModelFactory, i::Int64, case::Int64)
-    id = i
+function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::LinTMPOPFModelFactory, i::Int64, case_name::String)
+    scenario_id = i
     model = power_flow_model.model
     data = power_flow_model.data
     T = power_flow_model.time_periods
@@ -64,13 +64,18 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::L
             @constraint(model, va[t,i] == 0)
         end
 
-		# 
+		case = length(ref[:bus])
+        bus_index = 1
         for (i, bus) in ref[:bus]
             #d = sampling("Normal")
-            df = CSV.read("Cases/100d.csv", DataFrame)  # assumes header exists
+            scenarios = 2
+            df = CSV.read("Cases/$(scenarios)d.csv", DataFrame)  # assumes header exists
+            id = (scenario_id - 1)*case + bus_index
+            bus_index = bus_index + 1
             d_val = id == 0 ? 1.0 : df[id, :d] 
-            verify = CSV.read("Cases/100d_verify.csv", DataFrame)
-            open("Cases/100d_verify.csv", "a") do io
+
+            #verify = CSV.read("Cases/$(scenarios)_verify.csv", DataFrame)
+            open("Cases/$(scenarios)d_verify.csv", "a") do io
                 write(io, "$d_val\n")
             end 
    
@@ -94,15 +99,15 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::L
 
 		# active ( p ) and reactive ( q ) power constraints
 
-        df_branch = CSV.read("Cases/test/data/branch_specific/scenario_results_case$case.csv", DataFrame)  # assumes header exists
+        df_branch = CSV.read("Cases/test/data/branch_specific/scenario_results_$case_name.csv", DataFrame)  # assumes header exists
         for (i, branch) in ref[:branch]
             f_idx = (i, branch["f_bus"], branch["t_bus"])
             t_idx = (i, branch["t_bus"], branch["f_bus"])
-            idx = string( branch["f_bus"], "_",  branch["t_bus"])
+            idx = string(Int(branch["f_bus"]), "_",  Int(branch["t_bus"]))
             id = findfirst(==(idx), df_branch.line_id)
-            open("Cases/output.csv", "a") do io
-                write(io, "$case")
-            end 
+            #open("Cases/output.csv", "a") do io
+            #    write(io, "$case")
+            #end 
 
             p_to = p[t,t_idx]
             q_to = q[t,t_idx]
