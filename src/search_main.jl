@@ -7,9 +7,9 @@ include("graph_search.jl")
 include("rampingCSVimplementation.jl")
 
 
-#matpower_file_path = "./Cases/case14.m" 
-#matpower_file_path = "./Cases/case300.m" 
-matpower_file_path = "./Cases/case9241pegase.m" 
+matpower_file_path = "./Cases/case39.m" 
+#matpower_file_path = "./Cases/case1354pegase.m" 
+#matpower_file_path = "./Cases/case9241pegase.m" 
 #matpower_file_path = "./Cases/case1197.m" 
 #matpower_file_path = "./Cases/case_ACTIVSg200.m" 
 #matpower_file_path = "./Cases/case_ACTIVSg500.m" 
@@ -24,7 +24,7 @@ matpower_file_path = "./Cases/case9241pegase.m"
 #matpower_file_path = "./Cases/pglib_opf_case2312_goc.m"
 #matpower_file_path = "./Cases/pglib_opf_case2383wp_k.m"
 
-t = 3
+t = 24
 
 output_dir = "./Cases"
 data = PowerModels.parse_file(matpower_file_path)
@@ -37,78 +37,140 @@ for (gen_id, gen_data) in data["gen"]
     end
 end
 =#
-ramping_csv_file = generate_daily_demand_csv(data, output_dir)
-ramping_data, demands = parse_power_system_csv(ramping_csv_file, matpower_file_path)
+global total_cost_diffs = []
+global ramping_costs_diffs = []
+global iterations_vec = []
+global time_vec = []
 
-search_factory = DCMPOPFSearchFactory(matpower_file_path, Gurobi.Optimizer)
-search_model = create_search_model(search_factory, t, ramping_data, demands)
-opt_start = time()
-optimize!(search_model.model)
-opt_stop = time()
-println(opt_stop - opt_start, " seconds")
+for i in 1:24
+    t = i
+    ramping_csv_file = generate_daily_demand_csv(data, output_dir)
+    ramping_data, demands = parse_power_system_csv(ramping_csv_file, matpower_file_path)
 
-search_start = time()
-info = DC_graph_search(data, search_factory, demands, ramping_data, t)
-search_stop = time()
-println()
+    global search_factory = DCMPOPFSearchFactory(matpower_file_path, Gurobi.Optimizer)
+    search_model = create_search_model(search_factory, t, ramping_data, demands)
+    #opt_start = time()
+    optimize!(search_model.model)
+    #opt_stop = time()
+    #println(opt_stop - opt_start, " seconds")
 
-opt = objective_value(search_model.model)
-diff = info[:cost] / opt
- 
-println("Seconds: ", search_stop - search_start)
-println("Difference: ", info[:cost] / opt) 
+    search_start = time()
+    global info = DC_graph_search(data, search_factory, demands, ramping_data, t)
+    search_stop = time()
+    println()
 
-filename = split(matpower_file_path, "/") |> last
+    push!(time_vec, search_stop - search_start)
 
-graph_demands_and_generation(demands, search_model, info[:solution])
-output_run_data_to_csv(data, matpower_file_path, demands, search_model, info)
+    opt = objective_value(search_model.model)
+    diff = info[:cost] / opt
+    
+    println("Seconds: ", search_stop - search_start)
+    println("Difference: ", info[:cost] / opt) 
 
- # If wanting to graph the Cost History
-opt = objective_value(search_model.model)
+    filename = split(matpower_file_path, "/") |> last
+    optimal_cost = objective_value(search_model.model)
+    graph_cost = info[:cost]
+    push!(total_cost_diffs, (optimal_cost, graph_cost))
+    push!(iterations_vec, size(info[:cost_history]))
+    #graph_demands_and_generation(demands, search_model, info[:solution])
+    output_run_data_to_csv(data, matpower_file_path, demands, search_model, info)
+end
 
+#=
+global optimal_sum = 0
+global graph_sum = 0
+for x in total_cost_diffs
+    global optimal_sum += x[1]
+    global graph_sum += x[2]
+end
+
+ratio = graph_sum / optimal_sum
+
+average_iter = 0
+for x in iterations_vec
+    global average_iter += x[1]
+end
+global average_iter = average_iter / 10
+#end
+# If wanting to graph the Cost History
+    
+    
+    models = []
+    global total_cost = 0
+    for i in 1:t
+        model = create_search_model(search_factory, 1, ramping_data, [demands[i]])
+        optimize!(model.model)
+        push!(models, model)
+        global total_cost += objective_value(model.model)
+    end
+    
+    pg_values_by_t = []
+    for i in 1:t
+        values = [value(models[i].model[:pg][key]) for key in keys(models[i].model[:pg])]
+        pg_values = Dict(zip(models[i].model[:pg].axes[2], values))
+        push!(pg_values_by_t, pg_values)
+    end
+    
+    # Calculate total ramping cost
+    global total_ramping_cost = 0.0
+    for t in 2:t
+        for gen_id in ramping_data["gen_id"]
+            gen_key = Int(gen_id)
+            current_power = pg_values_by_t[t][gen_key]
+            previous_power = pg_values_by_t[t-1][gen_key]
+            ramp_amount = abs(current_power - previous_power)
+            global total_ramping_cost += ramp_amount * ramping_data["costs"][gen_key]
+        end
+    end
+    
+    individual_cost = total_cost
+
+    ramping_figures = get_generation_and_ramping_costs(data, info, search_model)
+    optimal_ramping_costs = ramping_figures[:search_model_ramping_cost]
+    graph_ramping_costs = ramping_figures[:graph_model_ramping_cost]
+    individual_ramping_costs = total_ramping_cost
+
+    push!(total_cost_diffs, (optimal_cost, graph_cost, individual_cost))
+    push!(ramping_costs_diffs, (optimal_ramping_costs, graph_ramping_costs, individual_ramping_costs))
+    
+    plot(info[:cost_history], 
+    label="Optimization Cost", 
+    title="Cost History : $matpower_file_path",
+    xlabel="Iteration", 
+    ylabel="Cost",
+    linewidth=2,
+    marker=:circle,
+    markersize=3)
+    
+global individual_sum = 0
+global optimal_ramping_sum = 0
+global graph_ramping_sum = 0
+global individual_ramping_sum = 0
+
+
+for x in ramping_costs_diffs
+    global optimal_ramping_sum += x[1]
+    global graph_ramping_sum += x[2]
+    global individual_ramping_sum += x[3]
+end
+total_cost_difference = graph_sum / optimal_sum
+total_ramping_difference = individual_ramping_sum / graph_ramping_sum
+
+#=
 plot(info[:cost_history], 
-     label="Optimization Cost", 
-     title="Cost History : $matpower_file_path",
-     xlabel="Iteration", 
-     ylabel="Cost",
-     linewidth=2,
-     marker=:circle,
-     markersize=3)
-annotate!(1, maximum(info[:cost_history]), text("Opt: = $opt", :left, 10))
+label="Optimization Cost", 
+title="Cost History : case14",
+xlabel="Iteration", 
+ylabel="Cost",
+linewidth=2,
+marker=:circle,
+markersize=3)
 title = time()
 #savefig("second_iteratoin.png")
+=#
 
 # If wanting to test with PowerModelds PF
 #test_model = PowerModels.solve_pf(data, DCPPowerModel, Gurobi.Optimizer)
-
-
-models = []
-for i in 1:t
-     model = create_search_model(search_factory, 1, ramping_data, [demands[i]])
-     optimize!(model.model)
-     push!(models, model)
-end
-
-pg_values_by_t = []
-for i in 1:t
-    values = [value(models[i].model[:pg][key]) for key in keys(models[i].model[:pg])]
-    pg_values = Dict(zip(models[i].model[:pg].axes[2], values))
-    push!(pg_values_by_t, pg_values)
-end
-
-# Calculate total ramping cost
-global total_ramping_cost = 0.0
-for t in 2:t
-    for gen_id in ramping_data["gen_id"]
-        gen_key = Int(gen_id)
-        current_power = pg_values_by_t[t][gen_key]
-        previous_power = pg_values_by_t[t-1][gen_key]
-        ramp_amount = abs(current_power - previous_power)
-        global total_ramping_cost += ramp_amount * ramping_data["costs"][gen_key]
-    end
-end
-
-println("Total ramping cost: $total_ramping_cost")
 
 #=
 for t in 1:5
@@ -137,3 +199,4 @@ for t in 1:5
     end 
 end
 =#
+=# 

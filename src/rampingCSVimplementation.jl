@@ -91,7 +91,7 @@ function generate_power_system_csv(data::Dict, output_dir::String, num_periods::
         ramp_limit = pmax * (ramp_percent / 100)
 
         # Generate random ramping cost
-        ramp_cost = rand(100:300) ### RAMP COST ### 
+        ramp_cost = rand(1000000:3000000) ### RAMP COST ### 
 
         push!(gen_data, (
             gen["index"],
@@ -252,7 +252,7 @@ function generate_daily_demand_csv(data::Dict, output_dir::String, num_periods::
         ramp_limit = pmax * (ramp_percent / 100)
 
         # Generate random ramping cost
-        ramp_cost = rand(10:50) ### RAMP COST ### 
+        ramp_cost = rand(100:300) ### RAMP COST ### 
 
         push!(gen_data, (
             gen["index"],

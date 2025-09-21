@@ -11,9 +11,6 @@ function set_model_variables!(power_flow_model::AbstractMPOPFModel, factory::DCM
     @variable(model, -ref[:branch][l]["rate_a"] <= p[1:T,(l,i,j) in ref[:arcs_from]] <= ref[:branch][l]["rate_a"])
     @variable(model, 0 <= ramp_up[t in 2:T, g in keys(gen_data)] <= ramp_data[g])
     @variable(model, 0 <= ramp_down[t in 2:T, g in keys(gen_data)] <= ramp_data[g])
-
-    #@variable(model, generation_cost[t in 1:T, g in keys(gen_data)] >= 0)
-    #@variable(model, ramping_cost[t in 2:T, g in keys(gen_data)] >= 0)
 end
 
 function set_model_objective_function!(power_flow_model::AbstractMPOPFModel, factory::DCMPOPFSearchFactory)

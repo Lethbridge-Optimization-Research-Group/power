@@ -60,7 +60,12 @@ function DC_graph_search(data, factory, demands, ramping_data, time_periods)
     largest_values = [value(largest_model.model[:pg][key]) for key in keys(largest_model.model[:pg])]
     baseline_generator_values = Dict(zip(largest_model.model[:pg].axes[2], largest_values))
 
-    initial_scenarios_raw = generate_new_scenarios_subset(baseline_generator_values, search_parameters)
+    search_parameters[:total_demand] = [sum(values(demands[i])) for i in 1:time_periods]
+    # For the first iteration, use the baseline values for all time periods
+    baseline_total_gen = sum(values(baseline_generator_values))
+    search_parameters[:total_generation] = fill(baseline_total_gen, time_periods)
+
+    initial_scenarios_raw = generate_new_scenarios_subset(baseline_generator_values, search_parameters, 1)
 
     scenarios, scenario_violations = test_scenarios(data, factory, demands[highest_demand], ramping_data, initial_scenarios_raw)
     violations[:min_demand_not_met] += scenario_violations[:min_demand_not_met]
@@ -127,7 +132,7 @@ function DC_graph_search(data, factory, demands, ramping_data, time_periods)
         end
 
         for i in 1:time_periods
-            scenarios_for_period = generate_new_scenarios_subset(current_generator_values[i], search_parameters)
+            scenarios_for_period = generate_new_scenarios_subset(current_generator_values[i], search_parameters, i)
             tested_scenarios, scenario_violations = test_scenarios(data, factory, demands[i], ramping_data, scenarios_for_period)
             violations[:min_demand_not_met] += scenario_violations[:min_demand_not_met]
             violations[:pmin_pmax_out_of_bounds] += scenario_violations[:pmin_pmax_out_of_bounds]
@@ -476,15 +481,15 @@ function build_and_optimize_largest_period(factory, demand, ramping_data)
     return model
 end
 
-function generate_new_scenarios_subset(current_outputs, search_parameters; 
+function generate_new_scenarios_subset(current_outputs, search_parameters, time_period; 
     scenarios_to_generate=15,
     subset_percentage=0.3, 
     variation_percent=0.05,
     up_probability=0.3)
     
+    time_periods = length(search_parameters[:total_generation])
     #Random.seed!(42 + search_parameters[:iteration])
-
-    core_generators = 0.3
+    core_generators = 0.2
     auxiliary_generators = 0.1
 
 
@@ -496,139 +501,83 @@ function generate_new_scenarios_subset(current_outputs, search_parameters;
     
     core_generators_to_modify = rand(all_generators, n_to_modify_core)
 
-    if search_parameters[:iteration] <= 1
+    # iteration > 1, use search heuristic
+
+    random_scenarios = Vector{Dict{Int64, Float64}}()
+
+    for scenario_idx in 1:scenarios_to_generate
+        # Start with current outputs
+        new_scenario = copy(current_outputs)
+        auxiliary_generators_to_modify = rand(all_generators, n_to_modify_auxiliary) #TODO
+
+        variation_percent = delta(scenario_idx, search_parameters, 1, time_period)
         
-        random_scenarios = Vector{Dict{Int64, Float64}}()
-        
-        for scenario_idx in 1:scenarios_to_generate
-            # Start with current outputs
-            new_scenario = copy(current_outputs)
+
+        # Modify each selected generator
+        for gen_id in core_generators_to_modify
+            current_value = current_outputs[gen_id]
+            max_variation = current_value * variation_percent
+            variation = rand() * max_variation
             
-            # Randomly select subset of generators to modify
-            auxiliary_generators_to_modify = rand(all_generators, n_to_modify_auxiliary)
-
-            # Modify each selected generator
-            for gen_id in core_generators_to_modify
-                current_value = current_outputs[gen_id]
-                max_variation = current_value * variation_percent
-                variation = rand() * max_variation
-                
-                # Calculate new value and clamp to bounds
-                if rand() < up_probability
-                    new_value = current_value + variation
-                else
-                    new_value = current_value - variation
-                end
-                
-                # Always clamp to both min and max bounds
-                pmin = data["gen"][string(gen_id)]["pmin"]
-                pmax = data["gen"][string(gen_id)]["pmax"]
-                new_scenario[gen_id] = clamp(new_value, pmin, pmax)
-            end
-
-            for gen_id in auxiliary_generators_to_modify
-                current_value = current_outputs[gen_id]
-                max_variation = current_value * variation_percent
-                variation = rand() * max_variation
-                
-                # Calculate new value and clamp to bounds
-                if rand() < up_probability
-                    new_value = current_value + variation
-                else
-                    new_value = current_value - variation
-                end
-                
-                # Always clamp to both min and max bounds
-                pmin = data["gen"][string(gen_id)]["pmin"]
-                pmax = data["gen"][string(gen_id)]["pmax"]
-                new_scenario[gen_id] = clamp(new_value, pmin, pmax)
+            # Calculate new value and clamp to bounds
+            if rand() < up_probability
+                new_value = current_value + variation
+            else
+                new_value = current_value - variation
             end
             
-            push!(random_scenarios, new_scenario)
-            #variation_percent += 0.01
+            # Always clamp to both min and max bounds
+            pmin = data["gen"][string(gen_id)]["pmin"]
+            pmax = data["gen"][string(gen_id)]["pmax"]
+            new_scenario[gen_id] = clamp(new_value, pmin, pmax)
+        end
+
+        for gen_id in auxiliary_generators_to_modify
+            current_value = current_outputs[gen_id]
+            max_variation = current_value * variation_percent
+            variation = rand() * max_variation
+            
+            # Calculate new value and clamp to bounds
+            if rand() < up_probability
+                new_value = current_value + variation
+            else
+                new_value = current_value - variation
+            end
+            
+            # Always clamp to both min and max bounds
+            pmin = data["gen"][string(gen_id)]["pmin"]
+            pmax = data["gen"][string(gen_id)]["pmax"]
+            new_scenario[gen_id] = clamp(new_value, pmin, pmax)
         end
         
-        # Always include the current solution as one scenario
-        push!(random_scenarios, current_outputs)
-        
-        return random_scenarios
-
-    else # iteration > 1, use search heuristic
-
-        random_scenarios = Vector{Dict{Int64, Float64}}()
-
-        for scenario_idx in 1:scenarios_to_generate
-            # Start with current outputs
-            new_scenario = copy(current_outputs)
-
-            variation_percent = delta(scenario_idx, search_parameters, 2)
-            
-            # Modify each selected generator
-            for gen_id in core_generators_to_modify
-                current_value = current_outputs[gen_id]
-                max_variation = current_value * variation_percent
-                variation = rand() * max_variation
-                
-                # Calculate new value and clamp to bounds
-                if rand() < up_probability
-                    new_value = current_value + variation
-                else
-                    new_value = current_value - variation
-                end
-                
-                # Always clamp to both min and max bounds
-                pmin = data["gen"][string(gen_id)]["pmin"]
-                pmax = data["gen"][string(gen_id)]["pmax"]
-                new_scenario[gen_id] = clamp(new_value, pmin, pmax)
-            end
-
-            for gen_id in auxiliary_generators_to_modify
-                current_value = current_outputs[gen_id]
-                max_variation = current_value * variation_percent
-                variation = rand() * max_variation
-                
-               # Calculate new value and clamp to bounds
-                if rand() < up_probability
-                    new_value = current_value + variation
-                else
-                    new_value = current_value - variation
-                end
-                
-                # Always clamp to both min and max bounds
-                pmin = data["gen"][string(gen_id)]["pmin"]
-                pmax = data["gen"][string(gen_id)]["pmax"]
-                new_scenario[gen_id] = clamp(new_value, pmin, pmax)
-            end
-            
-            push!(random_scenarios, new_scenario)
-            #variation_percent += 0.01
-        end
-        
-        # Always include the current solution as one scenario
-        push!(random_scenarios, current_outputs)
-        
-        return random_scenarios
+        push!(random_scenarios, new_scenario)
+        #variation_percent += 0.01
     end
+    
+    # Always include the current solution as one scenario
+    push!(random_scenarios, current_outputs)
+    
+    return random_scenarios
 end
 
-function delta(scenario_idx, search_parameters, method_choice)
+function delta(scenario_idx, search_parameters, method_choice, time_period)
     
     # 1 = standard random approach
     # 2 = alpha technique (alpha = actual demand / total demand * some factor)
     # 3 = convolution technique (average of adjacent time periods / total demand * some factor)
     # 4 = cost history (use change in objective function to determine delta)
-    time_periods = sizeof(search_parameters[:total_generation])
-    if search_parameters[:iteration] < 1
+    time_periods = length(search_parameters[:total_generation])
+    if search_parameters[:iteration] < 0
         factor = 0.05
     else
-        factor = 0.9
+        factor = 0.3
     end
     
     if method_choice == 1
-        delta = 5.0
+        delta = 0.05
     elseif method_choice == 2
-        total_demand = search_parameters[:total_demand][scenario_idx]
-        total_generation = search_parameters[:total_generation][scenario_idx]
+        total_demand = search_parameters[:total_demand][time_period]
+        total_generation = search_parameters[:total_generation][time_period]
         # If generation significantly exceeds demand, use larger variation
         # If generation barely meets demand, use smaller variation
         generation_demand_ratio = total_generation / total_demand
@@ -639,7 +588,7 @@ function delta(scenario_idx, search_parameters, method_choice)
         total = 0.0
         no_of_time_periods = 0
 
-        for i in scenario_idx - n:scenario_idx + n
+        for i in time_period - n:time_period + n
             if i < 1 || i > time_periods
                 continue
             else
@@ -650,7 +599,7 @@ function delta(scenario_idx, search_parameters, method_choice)
 
         if no_of_time_periods > 0
             average_generation = total / no_of_time_periods
-            current_demand = search_parameters[:total_demand][scenario_idx]
+            current_demand = search_parameters[:total_demand][time_period]
             
             # If average generation in neighborhood differs significantly from current demand
             avg_demand_ratio = average_generation / current_demand
@@ -664,8 +613,7 @@ function delta(scenario_idx, search_parameters, method_choice)
         delta = 0.05
         # future, do not do right now
     end
-
-
+    
     return delta
 
 end
@@ -961,6 +909,7 @@ function graph_demands_and_generation(demands, full_model, graph_solution)
     ylabel!(p1, "Total Generation")
     title!(p1, "Generation vs Demand")
     display(p1)
+    savefig("demand_curve.png")
 
     # Second plot
     p2 = plot(full_model_outputs .- demand_to_graph, label="Optimal Model - Demand", lw=2)
