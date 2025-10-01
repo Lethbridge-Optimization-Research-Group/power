@@ -5,8 +5,13 @@ docs/build/
 output/*
 results/
 large_results/
-Cases/test/
+*.m
 *.zip
-*.csv
+
 *.env
 powerenv/
+src/Test/
+Cases/test/matpower8.0
+Cases/test/older_data
+Cases/test/test_scripts
+Cases/*csv

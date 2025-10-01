@@ -14,6 +14,7 @@ scenarios = 2
 
 function getData(foldertosave::String,folder::String, model_type::String)
     #folder = joinpath(folder, "matpower8.0/data")
+    dc = (model_type == "DC") ? true : false
     for file in readdir(folder)
         case_number = nothing
         file_path = joinpath(folder, file)
@@ -80,7 +81,7 @@ function getData(foldertosave::String,folder::String, model_type::String)
 
                         #value for power generated
                         pg_val = JuMP.value.(My_AC_model.model[:pg])
-                        qg_val = JuMP.value.(My_AC_model.model[:qg])
+                        qg_val = dc ? 0 : JuMP.value.(My_AC_model.model[:qg])
 
                         x = PowerModels.build_ref(data)[:it][:pm][:nw][0]
                         gen_data = x[:gen]
@@ -88,7 +89,7 @@ function getData(foldertosave::String,folder::String, model_type::String)
                         for i in pg_val.axes[2]
                             gen_bus = gen_data[i]["gen_bus"]
                             pg_at_i = pg_val[1, i]
-                            qg_at_i = qg_val[1, i]
+                            qg_at_i =  dc ? 0 : qg_val[1, i]
 
                             open(csvfilenamePG, "a") do io
                                 write(io, "$i,$gen_bus,$pg_at_i,$qg_at_i\n")
@@ -104,15 +105,15 @@ function getData(foldertosave::String,folder::String, model_type::String)
 
                         #value for voltage amplitude
                         va_val = JuMP.value.(My_AC_model.model[:va])
-                        vm_val = JuMP.value.(My_AC_model.model[:vm])
+                        vm_val =  dc ? Dict() : JuMP.value.(My_AC_model.model[:vm])
 
                         for (i, branch) in x[:branch]
                             f_bus = branch["f_bus"]
-                            vm_from = vm_val[1, f_bus]
+                            vm_from =  dc ? 0 : vm_val[1, f_bus]
                             va_from = va_val[1, f_bus]
 
                             t_bus = branch["t_bus"]
-                            vm_to = vm_val[1, t_bus]
+                            vm_to =  dc ? 0 : vm_val[1, t_bus]
                             va_to = va_val[1, t_bus]
 
                             open(csvfilename, "a") do io
@@ -131,7 +132,7 @@ function getData(foldertosave::String,folder::String, model_type::String)
                 if compareD() 
                     println("Same")
                 else
-                    error("Did not read correctly from d values file $file")              
+                    error("Did not read correctly, from d values file $file")              
                 end
             end
         end
@@ -153,21 +154,23 @@ function generateDValues(case_number::Int, model_type::String)
 end
 
 function runModel(model_type::String, file_path::String, j::Int64)
-    My_AC_model = nothing
-    ac_factory = nothing
+    My_model = nothing
+    factory = nothing
     data = PowerModels.parse_file(file_path)
     PowerModels.standardize_cost_terms!(data, order=2)
     PowerModels.calc_thermal_limits!(data)
 
     if(model_type == "AC")
-        ac_factory = ACMPOPFModelFactory(file_path, Ipopt.Optimizer)
+        factory = ACMPOPFModelFactory(file_path, Ipopt.Optimizer)
+    elseif(model_type == "Approx")
+        factory = LinTMPOPFModelFactory(file_path, Ipopt.Optimizer)
     else
-        ac_factory = LinTMPOPFModelFactory(file_path, Ipopt.Optimizer)
+        factory = DCMPOPFModelFactory(file_path, Ipopt.Optimizer)
     end
+    
+    My_model = create_model_demand(factory; i = j)
 
-    My_AC_model = create_model_demand(ac_factory; i = j)
-
-    return My_AC_model, data
+    return My_model, data
 end
 
 function compareD()
@@ -182,17 +185,22 @@ end
 
 function runGen()
     folder = "Cases/test"
-
+    #=
     foldertosave = joinpath(folder, "data/AC")
     mkpath(foldertosave)
-
     getData(foldertosave, folder, "AC")
+    
     run(`powerenv/bin/python3 src/getCoefficients.py`)
     #run(`powerenv/bin/python3 src/updateCoefficients.py`)
 
     foldertosave = joinpath(folder, "data/Approx")
     mkpath(foldertosave)
     getData(foldertosave, folder, "Approx")
+    =#
+    foldertosave = joinpath(folder, "data/DC")
+    mkpath(foldertosave)
+    getData(foldertosave, folder, "DC")
+    
 
 end
 

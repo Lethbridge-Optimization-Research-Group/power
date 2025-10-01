@@ -29,7 +29,8 @@ function set_model_objective_function!(power_flow_model::AbstractMPOPFModel, fac
     )
 end
 
-function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::DCMPOPFModelFactory)
+function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::DCMPOPFModelFactory, i::Int64)
+    scenario_id = i
     model = power_flow_model.model
     data = power_flow_model.data
     T = power_flow_model.time_periods
@@ -57,14 +58,28 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::D
             @constraint(model, va[t,i] == 0)
         end
 
+        case = length(ref[:bus])
+        bus_index = 1
+        
         for (i, bus) in ref[:bus]
+
+            scenarios = 2
+            df = CSV.read("Cases/$(scenarios)d.csv", DataFrame)  # assumes header exists
+            id = (scenario_id - 1)*case + bus_index
+            bus_index = bus_index + 1
+            d_val = id == 0 ? 1.0 : df[id, :d] 
+
+            open("Cases/$(scenarios)d_verify.csv", "a") do io
+                write(io, "$d_val\n")
+            end 
+
             bus_loads = [load_data[l] for l in ref[:bus_loads][i]]
             bus_shunts = [ref[:shunt][s] for s in ref[:bus_shunts][i]]
 
             @constraint(model,
                 sum(p_expr[t][a] for a in ref[:bus_arcs][i]) ==
                 sum(pg[t, g] for g in ref[:bus_gens][i]) -
-                sum(load["pd"] * factors[t] for load in bus_loads) -
+                sum(load["pd"] * d_val * factors[t] for load in bus_loads) -
                 sum(shunt["gs"] for shunt in bus_shunts)*1.0^2
             )
         end

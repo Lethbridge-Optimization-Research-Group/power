@@ -4,7 +4,7 @@ using JuMP
 using PowerModels
 const PM = PowerModels
 
-file_path = "/home/prottasha-dcruze/UniversityProjects/OpticalPowerFlow/power/Cases/case14.m"
+file_path = "Cases/test/case14.m"
 
 data = PowerModels.parse_file(file_path)
 PowerModels.standardize_cost_terms!(data, order=2)
