@@ -321,7 +321,7 @@ module MPOPF
 
         set_model_variables!(power_flow_model, factory)
         set_model_objective_function!(power_flow_model, factory)
-        if factory isa ACMPOPFModelFactory || factory isa LinTMPOPFModelFactory
+        if factory isa ACMPOPFModelFactory || factory isa LinTMPOPFModelFactory || factory isa DCMPOPFModelFactory
             if factory isa LinTMPOPFModelFactory
                 case_name = basename(factory.file_path)
                 case = splitext(case_name)[1]

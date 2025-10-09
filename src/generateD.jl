@@ -3,6 +3,9 @@ using Random
 using Distributions
 
 function genDValues(val::Int, scenarios::Int)
+    if !isdir("Cases/test/data/dvalues")
+        mkdir("Cases/test/data/dvalues")
+    end
     csvfilename = "Cases/test/data/dvalues/Cases$(val)d.csv"
     d = nothing
     open(csvfilename, "w") do io
@@ -22,8 +25,8 @@ function sampling(i::String)
     if i == "Uniform"
         d = rand(Uniform(.9,1.1))
     else
-        mu = 0.95
-        sigma = 0.05
+        mu = 1
+        sigma = 0.00
         d = rand(Normal(mu, sigma))
     end
     return d

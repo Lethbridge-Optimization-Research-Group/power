@@ -129,6 +129,7 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::L
             g_to = branch["g_to"]
             b_to = branch["b_to"]
 
+
             @constraint(model, p_fr ==  (g+g_fr)/ttm*vm_fr^2 + (-g*tr+b*ti)/ttm*(df_branch[id, :y_cos_f_w1_vm_from]*vm_fr^2+df_branch[id, :y_cos_f_w2_vm_to]*vm_to^2+df_branch[id, :y_cos_f_w3_theta_i]*va_fr+df_branch[id, :y_cos_f_w4_theta_j]*va_to+df_branch[id, :y_cos_f_bias]) + (-b*tr-g*ti)/ttm*(df_branch[id,  :y_sin_f_w1_vm_from]*vm_fr^2+df_branch[id,  :y_sin_f_w2_vm_to]*vm_to^2+df_branch[id,  :y_sin_f_w3_theta_i]*va_fr+df_branch[id,  :y_sin_f_w4_theta_j]*va_to+df_branch[id,  :y_sin_f_bias]) )
             @constraint(model, q_fr == -(b+b_fr)/ttm*vm_fr^2 - (-b*tr-g*ti)/ttm*(df_branch[id, :y_cos_f_w1_vm_from]*vm_fr^2+df_branch[id, :y_cos_f_w2_vm_to]*vm_to^2+df_branch[id, :y_cos_f_w3_theta_i]*va_fr+df_branch[id, :y_cos_f_w4_theta_j]*va_to+df_branch[id, :y_cos_f_bias]) + (-b*tr-g*ti)/ttm*(df_branch[id,  :y_sin_f_w1_vm_from]*vm_fr^2+df_branch[id,  :y_sin_f_w2_vm_to]*vm_to^2+df_branch[id,  :y_sin_f_w3_theta_i]*va_fr+df_branch[id,  :y_sin_f_w4_theta_j]*va_to+df_branch[id,  :y_sin_f_bias]))
     

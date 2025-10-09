@@ -62,7 +62,6 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::D
         bus_index = 1
         
         for (i, bus) in ref[:bus]
-
             scenarios = 2
             df = CSV.read("Cases/$(scenarios)d.csv", DataFrame)  # assumes header exists
             id = (scenario_id - 1)*case + bus_index

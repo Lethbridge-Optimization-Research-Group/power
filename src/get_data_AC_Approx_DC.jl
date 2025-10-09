@@ -142,7 +142,7 @@ end
 function generateDValues(case_number::Int, model_type::String)
     #copy from the generated file to $(scenarios)d.csv to be used bu all other method
     #cp("Cases/test/data/dvalues/Cases$(case_number)d.csv", "Cases/$(scenarios)d.csv"; force = true)
-    if(model_type != "Approx")
+    if(model_type == "AC")
         println("Generating d values")
         genDValues(case_number, scenarios)
     end
@@ -180,12 +180,13 @@ function compareD()
     CSV.write("Cases/$(scenarios)d_verify.csv", df_unique) 
     
     df2 = CSV.read("Cases/$(scenarios)d.csv", DataFrame)
-    return (isequal(df_unique, df2) ? true : false)
+    df2_unique = unique(df2)
+    return (isequal(df_unique, df2_unique) ? true : false)
 end
 
 function runGen()
     folder = "Cases/test"
-    #=
+    
     foldertosave = joinpath(folder, "data/AC")
     mkpath(foldertosave)
     getData(foldertosave, folder, "AC")
@@ -196,7 +197,7 @@ function runGen()
     foldertosave = joinpath(folder, "data/Approx")
     mkpath(foldertosave)
     getData(foldertosave, folder, "Approx")
-    =#
+    
     foldertosave = joinpath(folder, "data/DC")
     mkpath(foldertosave)
     getData(foldertosave, folder, "DC")
