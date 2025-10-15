@@ -203,27 +203,35 @@ function generate_daily_demand_profile(base_demand::Float64, hour::Int)
     
     Random.seed!()
 
-    if hour >= 1 && hour <= 6  # Midnight to 6 AM - lowest demand
-        # Gradual decrease from midnight, then gradual increase toward 6 AM
-        base_multiplier = 0.6 + 0.05 * sin(π * (hour - 1) / 5)
-        
-    elseif hour >= 7 && hour <= 9  # 6-9 AM - morning ramp up
-        # Steep increase as people wake up and businesses start
-        base_multiplier = 0.65 + 0.25 * (hour - 6) / 3
-        
-    elseif hour >= 10 && hour <= 14  # 9 AM-2 PM - midday steady
-        # Moderate demand during business hours
-        base_multiplier = 0.85 + 0.05 * sin(π * (hour - 10) / 4)
-        
-    elseif hour >= 15 && hour <= 20  # 2-8 PM - peak hours
-        # Highest demand - people home from work, cooking, AC/heating
-        base_multiplier = 0.95 + 0.05 * sin(π * (hour - 15) / 5)
-        
-    else  # 8 PM-midnight - evening decline
-        # Gradual decrease as activities wind down
-        base_multiplier = 1.0 - 0.4 * (hour - 20) / 4
-    end
-    
+    hourly_demand_multipliers = [
+        0.7774898823226734,  # Hour 1 (Midnight-1 AM)
+        0.7577746367160817,  # Hour 2
+        0.7475629591967881,  # Hour 3
+        0.7467429624859722,  # Hour 4
+        0.7601066115854397,  # Hour 5
+        0.7957550749427186,  # Hour 6
+        0.848195634490196,   # Hour 7
+        0.8882239333758674,  # Hour 8
+        0.9048222421762029,  # Hour 9
+        0.914126440595437,   # Hour 10
+        0.9204892926317222,  # Hour 11
+        0.9255591999962104,  # Hour 12
+        0.9287639638251047,  # Hour 13
+        0.9297138190082938,  # Hour 14
+        0.9362318261053391,  # Hour 15
+        0.9566494709496483,  # Hour 16
+        0.9857044729639849,  # Hour 17
+        0.9995858620897072,  # Hour 18
+        0.997902383811302,   # Hour 19
+        0.986088604927653,   # Hour 20
+        0.9620366549171514,  # Hour 21
+        0.9152052978222504,  # Hour 22
+        0.8590014459494637,  # Hour 23
+        0.8105390064925645   # Hour 24 (11 PM-Midnight)
+    ]
+
+    base_multiplier = hourly_demand_multipliers[hour]
+
     # Add some random variation (±5%)
     noise = (rand() - 0.5) * 0.1
     multiplier = base_multiplier + noise

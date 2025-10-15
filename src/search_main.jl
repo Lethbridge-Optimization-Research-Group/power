@@ -3,11 +3,14 @@ using PowerModels
 using MPOPF
 using Statistics, Plots, GraphRecipes
 
-include("graph_search.jl")
-include("rampingCSVimplementation.jl")
+#include("graph_search.jl")
+include("graph_search_ac.jl")
+#include("rampingCSVimplementation.jl")
+include("rampingCSVimplementation_AC.jl")
 
+include("aggregate_demand_data.jl")
 
-matpower_file_path = "./Cases/case39.m" 
+matpower_file_path = "./Cases/case14.m"
 #matpower_file_path = "./Cases/case1354pegase.m" 
 #matpower_file_path = "./Cases/case9241pegase.m" 
 #matpower_file_path = "./Cases/case1197.m" 
@@ -42,20 +45,25 @@ global ramping_costs_diffs = []
 global iterations_vec = []
 global time_vec = []
 
-for i in 1:24
-    t = i
-    ramping_csv_file = generate_daily_demand_csv(data, output_dir)
-    ramping_data, demands = parse_power_system_csv(ramping_csv_file, matpower_file_path)
+#for i in 1:24
+    
+    #ramping_csv_file = generate_daily_demand_csv(data, output_dir)
+    ramping_csv_file = generate_ac_vector_demand_csv(data, output_dir)
+    #ramping_data, demands = parse_power_system_csv(ramping_csv_file, matpower_file_path)
+    ramping_data, active_demands, reactive_demands = parse_ac_power_system_csv(ramping_csv_file, matpower_file_path)
 
-    global search_factory = DCMPOPFSearchFactory(matpower_file_path, Gurobi.Optimizer)
-    search_model = create_search_model(search_factory, t, ramping_data, demands)
+    #global search_factory = DCMPOPFSearchFactory(matpower_file_path, Gurobi.Optimizer)
+    global search_factory = ACMPOPFSearchFactory(matpower_file_path, Ipopt.Optimizer)
+    #search_model = create_search_model(search_factory, t, ramping_data, demands)
+    search_model = create_search_model_ac(search_factory, t, ramping_data, active_demands, reactive_demands)
     #opt_start = time()
     optimize!(search_model.model)
     #opt_stop = time()
     #println(opt_stop - opt_start, " seconds")
 
     search_start = time()
-    global info = DC_graph_search(data, search_factory, demands, ramping_data, t)
+    #global info = DC_graph_search(data, search_factory, demands, ramping_data, t)
+    global info = ac_graph_search(data, search_factory, active_demands, reactive_demands, ramping_data, t)
     search_stop = time()
     println()
 
@@ -73,8 +81,19 @@ for i in 1:24
     push!(total_cost_diffs, (optimal_cost, graph_cost))
     push!(iterations_vec, size(info[:cost_history]))
     #graph_demands_and_generation(demands, search_model, info[:solution])
-    output_run_data_to_csv(data, matpower_file_path, demands, search_model, info)
-end
+    #output_run_data_to_csv(data, matpower_file_path, demands, search_model, info)
+#end
+
+plot(info[:cost_history])
+#=
+percent_decrease = costs ./ costs[1] .* 100
+plot(percent_decrease,
+            xlabel="Iteration",
+            ylabel="% of initial cost",
+            title="Cost Decrease Over Iterations",
+            linewidth=2,
+            legend=false)
+=#
 
 #=
 global optimal_sum = 0
@@ -200,3 +219,45 @@ for t in 1:5
 end
 =#
 =# 
+
+
+loads = data["load"]
+
+bus_loads = Dict{Int, Dict{Symbol, Float64}}()
+
+for (k, v) in loads
+    bus = v["load_bus"]
+    pd  = v["pd"]
+    qd  = v["qd"]
+    bus_loads[bus] = Dict(:pd => pd, :qd => qd)
+end
+
+# collect data
+buses = sort(collect(keys(bus_loads)))  # bus numbers in order
+pds   = [bus_loads[b][:pd] for b in buses]
+qds   = [bus_loads[b][:qd] for b in buses]
+
+# plot
+plot(#=buses,=# (pds,qds); label="Pd", lw=0, marker=:circle, markersize=1, color=:blue)
+#plot!(#=buses,=# qds; label="Qd", lw=1, marker=:circle, markersize=1, color=:red)
+
+xlabel!("Bus")
+ylabel!("Load (p.u.)")
+title!("$matpower_file_path")
+
+data2023 = parse_csv_data("./Attachments/PUB_Demand_2023.csv")
+data2024 = parse_csv_data("./Attachments/PUB_Demand_2024.csv")
+data2025 = parse_csv_data("./Attachments/PUB_Demand_2025.csv")
+
+average2023 = get_hourly_average(data2023)
+average2024 = get_hourly_average(data2024)
+average2025 = get_hourly_average(data2025)
+
+percent2023 = percentages_of_max_demand(average2023)
+percent2024 = percentages_of_max_demand(average2024)
+percent2025 = percentages_of_max_demand(average2025)
+
+total_averages = []
+for i in 1:24
+    push!(total_averages, (percent2023[i] + percent2024[i] + percent2025[i]) / 3)
+end

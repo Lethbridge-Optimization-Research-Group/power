@@ -16,7 +16,7 @@ module MPOPF
     # Exporting these functions from the module so we dont have to prefix them with MPOPF.
 
     # Export of this file
-    export create_model, create_search_model, optimize_model, ACMPOPFModelFactory, DCMPOPFModelFactory, optimize_model_with_plot, LinMPOPFModelFactory, NewACMPOPFModelFactory, DCMPOPFSearchFactory, create_model_check_feasibility, get_ref
+    export create_model, create_search_model, create_search_model_ac, optimize_model, ACMPOPFModelFactory, DCMPOPFModelFactory, optimize_model_with_plot, LinMPOPFModelFactory, NewACMPOPFModelFactory, DCMPOPFSearchFactory, ACMPOPFSearchFactory, create_model_check_feasibility, get_ref
 
     # Export of implementation_uncertainty.jl
     export generate_random_load_scenarios, setup_demand_distributions, sample_demand_scenarios, return_loads
@@ -151,6 +151,15 @@ module MPOPF
         end
     end
 
+    mutable struct ACMPOPFSearchFactory <: AbstractMPOPFModelFactory
+        file_path::String
+        optimizer::Type
+
+        function ACMPOPFSearchFactory(file_path::String, optimizer::Type)
+            return new(file_path, optimizer)
+        end
+    end
+
 ##############################################################################################
 # Concrete Model Structs
 # They are used as objects, passed around with variables that are specific to each model
@@ -233,6 +242,19 @@ module MPOPF
         end
     end
 
+    mutable struct ACMPOPFSearchModel <: AbstractMPOPFModel
+        model::JuMP.Model
+        data::Dict
+        time_periods::Int64
+        ramping_data::Dict
+        active_demands::Vector{Dict{Int64, Float64}}
+        reactive_demands::Vector{Dict{Int64, Float64}}
+
+        function ACMPOPFSearchModel(model::JuMP.Model, data::Dict, time_periods::Int64, ramping_data::Dict, active_demands::Vector{Dict{Int64, Float64}}, reactive_demands::Vector{Dict{Int64, Float64}})
+            return new(model, data, time_periods, ramping_data, active_demands, reactive_demands)
+        end
+    end
+
 ##############################################################################################
 # Create Model Functions
 # These functions return PowerFlowModel objects with or without uncertainty
@@ -247,6 +269,7 @@ module MPOPF
     include("implementation-linear.jl")
     include("implementation-new_ac.jl")
     include("implementation-search_dc.jl")
+    include("implementation-search_ac.jl")
     include("misc.jl")
     include("graphing_feasibility.jl")
     include("compute_and_save_feasibility.jl")
@@ -382,6 +405,23 @@ module MPOPF
         model = JuMP.Model(factory.optimizer)
 
         power_flow_model = MPOPFSearchModel(model, data, time_periods, ramping_data, demands)
+
+        set_model_variables!(power_flow_model, factory)
+        set_model_objective_function!(power_flow_model, factory)
+        set_model_constraints!(power_flow_model, factory)
+
+        return power_flow_model
+    end
+
+    function create_search_model_ac(factory::AbstractMPOPFModelFactory, time_periods::Int64, ramping_data::Dict,
+            active_demands::Vector{Dict{Int64, Float64}}, reactive_demands::Vector{Dict{Int64, Float64}})::ACMPOPFSearchModel
+        data = PowerModels.parse_file(factory.file_path)
+        PowerModels.standardize_cost_terms!(data, order=2)
+        PowerModels.calc_thermal_limits!(data)
+
+        model = JuMP.Model(factory.optimizer)
+
+        power_flow_model = ACMPOPFSearchModel(model, data, time_periods, ramping_data, active_demands, reactive_demands)
 
         set_model_variables!(power_flow_model, factory)
         set_model_objective_function!(power_flow_model, factory)
