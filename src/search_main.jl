@@ -45,6 +45,8 @@ global ramping_costs_diffs = []
 global iterations_vec = []
 global time_vec = []
 
+data2025 = parse_csv_data("./Attachments/PUB_Demand_2025.csv")
+
 #for i in 1:24
     
     #ramping_csv_file = generate_daily_demand_csv(data, output_dir)
@@ -83,8 +85,8 @@ global time_vec = []
     #graph_demands_and_generation(demands, search_model, info[:solution])
     #output_run_data_to_csv(data, matpower_file_path, demands, search_model, info)
 #end
-
 plot(info[:cost_history])
+
 #=
 percent_decrease = costs ./ costs[1] .* 100
 plot(percent_decrease,
@@ -247,7 +249,7 @@ title!("$matpower_file_path")
 
 data2023 = parse_csv_data("./Attachments/PUB_Demand_2023.csv")
 data2024 = parse_csv_data("./Attachments/PUB_Demand_2024.csv")
-data2025 = parse_csv_data("./Attachments/PUB_Demand_2025.csv")
+
 
 average2023 = get_hourly_average(data2023)
 average2024 = get_hourly_average(data2024)
@@ -256,8 +258,8 @@ average2025 = get_hourly_average(data2025)
 percent2023 = percentages_of_max_demand(average2023)
 percent2024 = percentages_of_max_demand(average2024)
 percent2025 = percentages_of_max_demand(average2025)
-
 total_averages = []
 for i in 1:24
     push!(total_averages, (percent2023[i] + percent2024[i] + percent2025[i]) / 3)
 end
+

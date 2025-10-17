@@ -1205,11 +1205,3 @@ function extract_power_flow_data_ac(model)
         :reactive => reactive_dict
     )
 end
-
-# Additional AC-specific helper functions can be added here as needed
-# Examples:
-# - voltage_magnitude_constraints_check()
-# - reactive_power_capability_curve_check()
-# - ac_power_flow_convergence_check()
-# - transformer_tap_handling()
-# - shunt_compensation_handling()

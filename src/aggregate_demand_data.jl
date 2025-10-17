@@ -36,3 +36,35 @@ function percentages_of_max_demand(hourly_averages)
     end
     return percentages
 end
+# enter date as yyyy-mm-dd
+using CSV, DataFrames
+
+using CSV, DataFrames
+
+function get_date_percentages(file_path, date)
+    # Read data
+    df = CSV.read(file_path, DataFrame; skipto=5, header=false)
+    rename!(df, [:Date, :Hour, :Market_Demand, :Ontario_Demand])
+
+    # Clean date column
+    df.Date = strip.(string.(df.Date))
+
+    # Filter for specific date
+    day_data = df[df.Date .== date, :]
+
+    if nrow(day_data) == 0
+        error("No data found for date $date")
+    end
+
+    # Get Ontario Demand for each hour (0 if missing)
+    hourly_demand = [
+        isempty(day_data[day_data.Hour .== i, :Ontario_Demand]) ?
+            0 :
+            day_data[day_data.Hour .== i, :Ontario_Demand][1]
+        for i in 1:24
+    ]
+
+    # Compute percentages of that day's peak
+    max_demand = maximum(hourly_demand)
+    return hourly_demand ./ max_demand
+end

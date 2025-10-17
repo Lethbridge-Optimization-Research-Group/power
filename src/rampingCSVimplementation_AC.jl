@@ -148,7 +148,7 @@ end
 function generate_ac_vector_demand_profile(base_pd::Float64, base_qd::Float64, hour::Int;
                                            peak_hour::Int=18, min_hour::Int=4,
                                            peak_magnitude::Float64=1.0, min_magnitude::Float64=0.6,
-                                           max_angle_variation::Float64=3.0)
+                                           max_angle_variation::Float64=10.0)
     """
     Generate demand for a specific hour using vector perturbation approach
     
@@ -639,19 +639,7 @@ function plot_bus_pq_vectors(csv_file_path::String, time_period::Int;
         end
     end
     
-    # Add reference lines for common power factors
-    max_p = maximum(pd_values)
-    pf_lines = [0.7, 0.8, 0.85, 0.9, 0.95]
-    for pf in pf_lines
-        angle = acos(pf)
-        q_at_max_p = max_p * tan(angle)
-        plot!(p, [0, max_p], [0, q_at_max_p],
-              linestyle=:dash,
-              linewidth=1,
-              alpha=0.4,
-              color=:green,
-              label=i == 1 ? "PF lines" : "")
-    end
+    
     
     # Save or display
     if !isempty(save_path)
