@@ -145,8 +145,7 @@ function perturb_power_vector(pd::Float64, qd::Float64, magnitude_multiplier::Fl
     return max(0.0, new_pd), max(0.0, new_qd)
 end
 
-function generate_ac_vector_demand_profile(base_pd::Float64, base_qd::Float64, hour::Int;
-                                           peak_hour::Int=18, min_hour::Int=4,
+function generate_ac_vector_demand_profile(base_pd::Float64, base_qd::Float64, hour::Int, hourly_demand_multipliers;
                                            peak_magnitude::Float64=1.0, min_magnitude::Float64=0.6,
                                            max_angle_variation::Float64=10.0)
     """
@@ -161,32 +160,10 @@ function generate_ac_vector_demand_profile(base_pd::Float64, base_qd::Float64, h
     """
     Random.seed!(42 + hour)
     
-   hourly_demand_multipliers = [
-        0.7774898823226734, # Hour 1 (Midnight-1 AM)
-        0.7577746367160817, # Hour 2
-        0.7475629591967881, # Hour 3
-        0.7467429624859722, # Hour 4
-        0.7601066115854397, # Hour 5
-        0.7957550749427186, # Hour 6
-        0.848195634490196,  # Hour 7
-        0.8882239333758674, # Hour 8
-        0.9048222421762029, # Hour 9
-        0.914126440595437,  # Hour 10
-        0.9204892926317222, # Hour 11
-        0.9255591999962104, # Hour 12
-        0.9287639638251047, # Hour 13
-        0.9297138190082938, # Hour 14
-        0.9362318261053391, # Hour 15
-        0.9566494709496483, # Hour 16
-        0.9857044729639849, # Hour 17
-        0.9995858620897072, # Hour 18
-        0.997902383811302,  # Hour 19
-        0.986088604927653,  # Hour 20
-        0.9620366549171514, # Hour 21
-        0.9152052978222504, # Hour 22
-        0.8590014459494637, # Hour 23
-        0.8105390064925645  # Hour 24 (11 PM-Midnight)
-    ]
+
+    min_hour = minimum(hourly_demand_multipliers)
+    peak_hour = maximum(hourly_demand_multipliers)
+
     
     # Get base multiplier from historical data
     base_multiplier = hourly_demand_multipliers[hour]
@@ -209,7 +186,7 @@ function generate_ac_vector_demand_profile(base_pd::Float64, base_qd::Float64, h
     return perturb_power_vector(base_pd, base_qd, magnitude_multiplier, angle_perturbation)
 end
 
-function generate_ac_vector_demand_csv(data::Dict, output_dir::String, num_periods::Int=24;
+function generate_ac_vector_demand_csv(data::Dict, output_dir::String, hourly_demand_multipliers, num_periods::Int=24;
                                        default_power_factor::Float64=0.85,
                                        capacity_safety_margin::Float64=0.95)
     """
@@ -304,7 +281,7 @@ function generate_ac_vector_demand_csv(data::Dict, output_dir::String, num_perio
             base_pd, base_qd = base_demand_vectors[bus_id]
             
             # Apply vector perturbation
-            new_pd, new_qd = generate_ac_vector_demand_profile(base_pd, base_qd, hour)
+            new_pd, new_qd = generate_ac_vector_demand_profile(base_pd, base_qd, hour, hourly_demand_multipliers)
             
             push!(hourly_active_demands, new_pd)
             push!(hourly_reactive_demands, new_qd)

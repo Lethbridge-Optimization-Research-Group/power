@@ -45,12 +45,12 @@ global ramping_costs_diffs = []
 global iterations_vec = []
 global time_vec = []
 
-data2025 = parse_csv_data("./Attachments/PUB_Demand_2025.csv")
+hourly_demand_multipliers = get_date_percentages("./Attachments/PUB_Demand_2025.csv", "2025-10-01")
 
 #for i in 1:24
     
     #ramping_csv_file = generate_daily_demand_csv(data, output_dir)
-    ramping_csv_file = generate_ac_vector_demand_csv(data, output_dir)
+    ramping_csv_file = generate_ac_vector_demand_csv(data, output_dir, hourly_demand_multipliers)
     #ramping_data, demands = parse_power_system_csv(ramping_csv_file, matpower_file_path)
     ramping_data, active_demands, reactive_demands = parse_ac_power_system_csv(ramping_csv_file, matpower_file_path)
 
@@ -246,7 +246,7 @@ plot(#=buses,=# (pds,qds); label="Pd", lw=0, marker=:circle, markersize=1, color
 xlabel!("Bus")
 ylabel!("Load (p.u.)")
 title!("$matpower_file_path")
-
+#=
 data2023 = parse_csv_data("./Attachments/PUB_Demand_2023.csv")
 data2024 = parse_csv_data("./Attachments/PUB_Demand_2024.csv")
 
@@ -262,4 +262,4 @@ total_averages = []
 for i in 1:24
     push!(total_averages, (percent2023[i] + percent2024[i] + percent2025[i]) / 3)
 end
-
+=#
