@@ -31,12 +31,18 @@ function getData(foldertosave::String,folder::String, model_type::String)
                 case_number = parse(Int, m.captures[1])
             end
 
-            open(csvfilename, "w") do io
-                write(io, "\nBus_from,Bus_to,volatge_magnitude_from,volatge_magnitude_to,theta_from,theta_to,cost \n")
+            if dc
+                open(csvfilename, "w") do io
+                    write(io, "\nStatus,Bus_from,Bus_to,volatge_magnitude_from,volatge_magnitude_to,theta_from,theta_to,cost,p_fr\n")
+                end
+            else
+                open(csvfilename, "w") do io
+                    write(io, "\nStatus,Bus_from,Bus_to,volatge_magnitude_from,volatge_magnitude_to,theta_from,theta_to,cost,p_fr,q_fr,p_to,q_to\n")
+                end
             end
-            
+
             open(csvfilenamePG, "w") do io
-                write(io, "Index,GeneratorBus,PowerGenerated,ReactivePowerGenerated\n")
+                write(io, "Status,Index,GeneratorBus,PowerGenerated,ReactivePowerGenerated\n")
             end
 
             generateDValues(case_number, model_type)
@@ -76,7 +82,11 @@ function getData(foldertosave::String,folder::String, model_type::String)
                         else
                             println("Cost line not found")
                         end
-
+                        status = "Feasible"
+                    else
+                        status = "Infeasible"
+                        cost = "-"
+                    end
                         #----------------------------------i Indexed Data ---------------------------------
 
                         #value for power generated
@@ -92,7 +102,7 @@ function getData(foldertosave::String,folder::String, model_type::String)
                             qg_at_i =  dc ? 0 : qg_val[1, i]
 
                             open(csvfilenamePG, "a") do io
-                                write(io, "$i,$gen_bus,$pg_at_i,$qg_at_i\n")
+                                write(io, "$status,$i,$gen_bus,$pg_at_i,$qg_at_i\n")
                             end
                             
                         end
@@ -116,15 +126,27 @@ function getData(foldertosave::String,folder::String, model_type::String)
                             vm_to =  dc ? 0 : vm_val[1, t_bus]
                             va_to = va_val[1, t_bus]
 
-                            open(csvfilename, "a") do io
-                                write(io, "$f_bus,$t_bus,$vm_from,$vm_to,$va_from,$va_to,$cost\n")
-                            end 
+
+                            f_idx = (i, branch["f_bus"], branch["t_bus"])
+                            t_idx = dc ? (0,0,0) : (i, branch["t_bus"], branch["f_bus"])
+
+                            p_fr = value(powerfrom[f_idx])
+                            q_fr = dc ? "-" : value(reactancefrom[f_idx])
+
+                            p_to = dc ? "-" : value(powerto[t_idx])
+                            q_to = dc ? "-" : value(reactanceto[t_idx])
+
+                            if dc == true
+                                open(csvfilename, "a") do io
+                                    write(io, "$status,$f_bus,$t_bus,$vm_from,$vm_to,$va_from,$va_to,$cost,$p_fr\n")
+                                end
+                            else
+                                open(csvfilename, "a") do io
+                                    write(io, "$status,$f_bus,$t_bus,$vm_from,$vm_to,$va_from,$va_to,$cost,$p_fr,$q_fr,$p_to,$q_to\n")
+                                end
+                            end
                         end
-                    else
-                        open(csvfilename, "a") do io
-                            write(io, "Infeasible\n")
-                        end
-                    end
+
                     open(csvfilename, "a") do io
                         write(io, "\n")
                     end

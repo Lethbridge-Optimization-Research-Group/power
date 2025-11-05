@@ -55,7 +55,7 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::L
     ramp_down = model[:ramp_down]
 
     factors = power_flow_model.factors
-    
+
 	# power balance constraints for time periods
     for t in 1:T
 
@@ -129,13 +129,12 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::L
             g_to = branch["g_to"]
             b_to = branch["b_to"]
 
-
-            @constraint(model, p_fr ==  (g+g_fr)/ttm*vm_fr^2 + (-g*tr+b*ti)/ttm*(df_branch[id, :y_cos_f_w1_vm_from]*vm_fr^2+df_branch[id, :y_cos_f_w2_vm_to]*vm_to^2+df_branch[id, :y_cos_f_w3_theta_i]*va_fr+df_branch[id, :y_cos_f_w4_theta_j]*va_to+df_branch[id, :y_cos_f_bias]) + (-b*tr-g*ti)/ttm*(df_branch[id,  :y_sin_f_w1_vm_from]*vm_fr^2+df_branch[id,  :y_sin_f_w2_vm_to]*vm_to^2+df_branch[id,  :y_sin_f_w3_theta_i]*va_fr+df_branch[id,  :y_sin_f_w4_theta_j]*va_to+df_branch[id,  :y_sin_f_bias]) )
-            @constraint(model, q_fr == -(b+b_fr)/ttm*vm_fr^2 - (-b*tr-g*ti)/ttm*(df_branch[id, :y_cos_f_w1_vm_from]*vm_fr^2+df_branch[id, :y_cos_f_w2_vm_to]*vm_to^2+df_branch[id, :y_cos_f_w3_theta_i]*va_fr+df_branch[id, :y_cos_f_w4_theta_j]*va_to+df_branch[id, :y_cos_f_bias]) + (-b*tr-g*ti)/ttm*(df_branch[id,  :y_sin_f_w1_vm_from]*vm_fr^2+df_branch[id,  :y_sin_f_w2_vm_to]*vm_to^2+df_branch[id,  :y_sin_f_w3_theta_i]*va_fr+df_branch[id,  :y_sin_f_w4_theta_j]*va_to+df_branch[id,  :y_sin_f_bias]))
+            powerfrom[f_idx]  = @constraint(model,p_fr ==  (g+g_fr)/ttm*vm_fr^2 + (-g*tr+b*ti)/ttm*(df_branch[id, :y_cos_f_w1_vm_from]*vm_fr^2+df_branch[id, :y_cos_f_w2_vm_to]*vm_to^2+df_branch[id, :y_cos_f_w3_theta_i]*va_fr+df_branch[id, :y_cos_f_w4_theta_j]*va_to+df_branch[id, :y_cos_f_bias]) + (-b*tr-g*ti)/ttm*(df_branch[id,  :y_sin_f_w1_vm_from]*vm_fr^2+df_branch[id,  :y_sin_f_w2_vm_to]*vm_to^2+df_branch[id,  :y_sin_f_w3_theta_i]*va_fr+df_branch[id,  :y_sin_f_w4_theta_j]*va_to+df_branch[id,  :y_sin_f_bias]) )
+            reactancefrom[f_idx] = @constraint(model, q_fr == -(b+b_fr)/ttm*vm_fr^2 - (-b*tr-g*ti)/ttm*(df_branch[id, :y_cos_f_w1_vm_from]*vm_fr^2+df_branch[id, :y_cos_f_w2_vm_to]*vm_to^2+df_branch[id, :y_cos_f_w3_theta_i]*va_fr+df_branch[id, :y_cos_f_w4_theta_j]*va_to+df_branch[id, :y_cos_f_bias]) + (-b*tr-g*ti)/ttm*(df_branch[id,  :y_sin_f_w1_vm_from]*vm_fr^2+df_branch[id,  :y_sin_f_w2_vm_to]*vm_to^2+df_branch[id,  :y_sin_f_w3_theta_i]*va_fr+df_branch[id,  :y_sin_f_w4_theta_j]*va_to+df_branch[id,  :y_sin_f_bias]))
     
             # To side of the branch flow
-            @constraint(model, p_to ==  (g+g_to)*vm_to^2 + (-g*tr-b*ti)/ttm*(df_branch[id, :y_cos_f_w1_vm_from]*vm_fr^2+df_branch[id, :y_cos_f_w2_vm_to]*vm_to^2+df_branch[id, :y_cos_f_w3_theta_i]*va_fr+df_branch[id, :y_cos_f_w4_theta_j]*va_to+df_branch[id, :y_cos_f_bias]) + (-b*tr+g*ti)/ttm*(-df_branch[id,  :y_sin_f_w1_vm_from]*vm_fr^2-df_branch[id,  :y_sin_f_w2_vm_to]*vm_to^2-df_branch[id,  :y_sin_f_w3_theta_i]*va_fr-df_branch[id,  :y_sin_f_w4_theta_j]*va_to-df_branch[id,  :y_sin_f_bias]))
-            @constraint(model, q_to == -(b+b_to)*vm_to^2 - (-b*tr+g*ti)/ttm*(df_branch[id, :y_cos_f_w1_vm_from]*vm_fr^2+df_branch[id, :y_cos_f_w2_vm_to]*vm_to^2+df_branch[id, :y_cos_f_w3_theta_i]*va_fr+df_branch[id, :y_cos_f_w4_theta_j]*va_to+df_branch[id, :y_cos_f_bias]) + (-g*tr-b*ti)/ttm*(-df_branch[id,  :y_sin_f_w1_vm_from]*vm_fr^2-df_branch[id,  :y_sin_f_w2_vm_to]*vm_to^2-df_branch[id,  :y_sin_f_w3_theta_i]*va_fr-df_branch[id,  :y_sin_f_w4_theta_j]*va_to-df_branch[id,  :y_sin_f_bias]))
+            powerto[t_idx] = @constraint(model, p_to ==  (g+g_to)*vm_to^2 + (-g*tr-b*ti)/ttm*(df_branch[id, :y_cos_f_w1_vm_from]*vm_fr^2+df_branch[id, :y_cos_f_w2_vm_to]*vm_to^2+df_branch[id, :y_cos_f_w3_theta_i]*va_fr+df_branch[id, :y_cos_f_w4_theta_j]*va_to+df_branch[id, :y_cos_f_bias]) + (-b*tr+g*ti)/ttm*(-df_branch[id,  :y_sin_f_w1_vm_from]*vm_fr^2-df_branch[id,  :y_sin_f_w2_vm_to]*vm_to^2-df_branch[id,  :y_sin_f_w3_theta_i]*va_fr-df_branch[id,  :y_sin_f_w4_theta_j]*va_to-df_branch[id,  :y_sin_f_bias]))
+            reactanceto[t_idx] = @constraint(model, q_to == -(b+b_to)*vm_to^2 - (-b*tr+g*ti)/ttm*(df_branch[id, :y_cos_f_w1_vm_from]*vm_fr^2+df_branch[id, :y_cos_f_w2_vm_to]*vm_to^2+df_branch[id, :y_cos_f_w3_theta_i]*va_fr+df_branch[id, :y_cos_f_w4_theta_j]*va_to+df_branch[id, :y_cos_f_bias]) + (-g*tr-b*ti)/ttm*(-df_branch[id,  :y_sin_f_w1_vm_from]*vm_fr^2-df_branch[id,  :y_sin_f_w2_vm_to]*vm_to^2-df_branch[id,  :y_sin_f_w3_theta_i]*va_fr-df_branch[id,  :y_sin_f_w4_theta_j]*va_to-df_branch[id,  :y_sin_f_bias]))
             
             @constraint(model, va_fr - va_to <= branch["angmax"])
             @constraint(model, va_fr - va_to >= branch["angmin"])

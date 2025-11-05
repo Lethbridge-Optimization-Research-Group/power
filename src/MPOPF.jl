@@ -47,6 +47,12 @@ module MPOPF
     # Export of rampingCSVimplementation.jl
     export safe_parse_float, parse_power_system_csv, generate_power_system_csv
 
+    powerfrom = Dict{Tuple{Int64, Int64, Int64}, JuMP.ConstraintRef}()
+    reactancefrom = Dict{Tuple{Int64, Int64, Int64}, JuMP.ConstraintRef}() 
+    powerto = Dict{Tuple{Int64, Int64, Int64}, JuMP.ConstraintRef}()
+    reactanceto = Dict{Tuple{Int64, Int64, Int64}, JuMP.ConstraintRef}()
+
+    export powerfrom, reactancefrom, powerto, reactanceto
 
     # create enum for linear models
     @enum MODEL_TYPE begin

@@ -93,7 +93,7 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::D
     
             g, b = PowerModels.calc_branch_y(branch)
     
-            @constraint(model, p_fr == -b*(va_fr - va_to))
+            powerfrom[f_idx] = @constraint(model, p_fr == -b*(va_fr - va_to))
         
             @constraint(model, va_fr - va_to <= branch["angmax"])
             @constraint(model, va_fr - va_to >= branch["angmin"])
