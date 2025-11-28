@@ -34,11 +34,11 @@ function getData(foldertosave::String,folder::String, model_type::String)
 
             if dc
                 open(csvfilename, "w") do io
-                    write(io, "\nStatus,Bus_from,Bus_to,volatge_magnitude_from,volatge_magnitude_to,theta_from,theta_to,cost,p_fr\n")
+                    write(io, "\nStatus,Bus_from,Bus_to,volatge_magnitude_from,volatge_magnitude_to,theta_from,theta_to,cost,constraint_p_fr,p_fr\n")
                 end
             else
                 open(csvfilename, "w") do io
-                    write(io, "\nStatus,Bus_from,Bus_to,volatge_magnitude_from,volatge_magnitude_to,theta_from,theta_to,cost,p_fr,q_fr,p_to,q_to\n")
+                    write(io, "\nStatus,Bus_from,Bus_to,volatge_magnitude_from,volatge_magnitude_to,theta_from,theta_to,cost,constraint_p_fr,p_fr,constraint_q_fr,q_fr,constraint_p_to,p_to,constraint_q_to,q_to\n")
                 end
             end
 
@@ -89,7 +89,8 @@ function getData(foldertosave::String,folder::String, model_type::String)
                         cost = "-"
                     end
                         #----------------------------------i Indexed Data ---------------------------------
-
+                    T = My_AC_model.time_periods
+                    for t in 1:T
                         #value for power generated
                         pg_val = JuMP.value.(My_AC_model.model[:pg])
                         qg_val = dc ? 0 : JuMP.value.(My_AC_model.model[:qg])
@@ -117,37 +118,44 @@ function getData(foldertosave::String,folder::String, model_type::String)
                         #value for voltage amplitude
                         va_val = JuMP.value.(My_AC_model.model[:va])
                         vm_val =  dc ? Dict() : JuMP.value.(My_AC_model.model[:vm])
+                        p = JuMP.value.(My_AC_model.model[:p])
+                        q = dc ? Dict() : JuMP.value.(My_AC_model.model[:q])
 
                         for (i, branch) in x[:branch]
                             f_bus = branch["f_bus"]
-                            vm_from =  dc ? 0 : vm_val[1, f_bus]
-                            va_from = va_val[1, f_bus]
+                            vm_from =  dc ? 0 : vm_val[t, f_bus]
+                            va_from = va_val[t, f_bus]
 
                             t_bus = branch["t_bus"]
-                            vm_to =  dc ? 0 : vm_val[1, t_bus]
-                            va_to = va_val[1, t_bus]
+                            vm_to =  dc ? 0 : vm_val[t, t_bus]
+                            va_to = va_val[t, t_bus]
 
 
                             f_idx = (i, branch["f_bus"], branch["t_bus"])
                             t_idx = dc ? (0,0,0) : (i, branch["t_bus"], branch["f_bus"])
 
-                            p_fr = value(powerfrom[f_idx])
-                            q_fr = dc ? "-" : value(reactancefrom[f_idx])
+                            constraint_p_fr = value(powerfrom[f_idx])
+                            constraint_q_fr = dc ? "-" : value(reactancefrom[f_idx])
 
-                            p_to = dc ? "-" : value(powerto[t_idx])
-                            q_to = dc ? "-" : value(reactanceto[t_idx])
+                            constraint_p_to = dc ? "-" : value(powerto[t_idx])
+                            constraint_q_to = dc ? "-" : value(reactanceto[t_idx])
+
+                            p_to = p[t,t_idx]
+                            q_to = q[t,t_idx]
+                            p_fr = p[t,f_idx]
+                            q_fr = q[t,f_idx]
 
                             if dc == true
                                 open(csvfilename, "a") do io
-                                    write(io, "$status,$f_bus,$t_bus,$vm_from,$vm_to,$va_from,$va_to,$cost,$p_fr\n")
+                                    write(io, "$status,$f_bus,$t_bus,$vm_from,$vm_to,$va_from,$va_to,$cost,$constraint_p_fr,$p_fr\n")
                                 end
                             else
                                 open(csvfilename, "a") do io
-                                    write(io, "$status,$f_bus,$t_bus,$vm_from,$vm_to,$va_from,$va_to,$cost,$p_fr,$q_fr,$p_to,$q_to\n")
+                                    write(io, "$status,$f_bus,$t_bus,$vm_from,$vm_to,$va_from,$va_to,$cost,$constraint_p_fr,$p_fr,$constraint_q_fr,$q_fr,$constraint_p_to,$p_to,$constraint_q_to,$q_to\n")
                                 end
                             end
                         end
-
+                    end
                     open(csvfilename, "a") do io
                         write(io, "\n")
                     end
