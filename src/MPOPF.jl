@@ -316,7 +316,7 @@ module MPOPF
     # Returns
     An `MPOPFModel` object representing the created MPOPF model.
     """
-    function create_model_demand(factory::AbstractMPOPFModelFactory; time_periods::Int64=1, factors::Vector{Float64}=[1.0], ramping_cost::Int64=0, model_type=undef, i::Int64=0)::MPOPFModel
+    function create_model_demand(factory::AbstractMPOPFModelFactory; time_periods::Int64=1, factors::Vector{Float64}=[1.0], ramping_cost::Int64=0, model_type=undef, i::Int64=0, specificType::String="")::MPOPFModel
         data = PowerModels.parse_file(factory.file_path)
         PowerModels.standardize_cost_terms!(data, order=2)
         PowerModels.calc_thermal_limits!(data)
@@ -332,7 +332,7 @@ module MPOPF
                 case_name = basename(factory.file_path)
                 case = splitext(case_name)[1]
 
-                model_type !== undef ? set_model_constraints!(power_flow_model, factory, model_type) : set_model_constraints!(power_flow_model, factory, i, case)
+                model_type !== undef ? set_model_constraints!(power_flow_model, factory, model_type) : set_model_constraints!(power_flow_model, factory, i, case, specificType)
             else
                 model_type !== undef ? set_model_constraints!(power_flow_model, factory, model_type) : set_model_constraints!(power_flow_model, factory, i)
             end

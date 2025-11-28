@@ -11,6 +11,7 @@ const PM = PowerModels
 include("generateD.jl")
 
 scenarios = 2
+specificType = "case"
 
 function getData(foldertosave::String,folder::String, model_type::String)
     #folder = joinpath(folder, "matpower8.0/data")
@@ -184,13 +185,18 @@ function runModel(model_type::String, file_path::String, j::Int64)
 
     if(model_type == "AC")
         factory = ACMPOPFModelFactory(file_path, Ipopt.Optimizer)
+        My_model = create_model_demand(factory; i = j)
+
     elseif(model_type == "Approx")
         factory = LinTMPOPFModelFactory(file_path, Ipopt.Optimizer)
+        My_model = create_model_demand(factory; i = j, specificType)
+
     else
         factory = DCMPOPFModelFactory(file_path, Ipopt.Optimizer)
+        My_model = create_model_demand(factory; i = j)
+
     end
     
-    My_model = create_model_demand(factory; i = j)
 
     return My_model, data
 end
@@ -208,12 +214,16 @@ end
 
 function runGen()
     folder = "Cases/test"
-    
+    #specificType = "branch"
+
     foldertosave = joinpath(folder, "data/AC")
     mkpath(foldertosave)
     getData(foldertosave, folder, "AC")
     
-    run(`powerenv/bin/python3 src/getCoefficients.py`)
+    if specificType == "branch"
+        run(`powerenv/bin/python3 src/getCoefficients.py`)
+    else
+        #run coefficients calculator for case specific
     #run(`powerenv/bin/python3 src/updateCoefficients.py`)
 
     foldertosave = joinpath(folder, "data/Approx")
