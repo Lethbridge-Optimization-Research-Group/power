@@ -228,10 +228,8 @@ function runGen()
     mkpath(foldertosave)
     getData(foldertosave, folder, "AC")
     
-    if specificType == "branch"
-        run(`powerenv/bin/python3 src/getCoefficients.py`)
-    else
-        #run coefficients calculator for case specific
+    run(`powerenv/bin/python3 src/getCoefficients.py`)
+    #run coefficients calculator for case specific
     #run(`powerenv/bin/python3 src/updateCoefficients.py`)
 
     foldertosave = joinpath(folder, "data/Approx")
@@ -241,8 +239,6 @@ function runGen()
     foldertosave = joinpath(folder, "data/DC")
     mkpath(foldertosave)
     getData(foldertosave, folder, "DC")
-    
-
 end
 
 runGen()
