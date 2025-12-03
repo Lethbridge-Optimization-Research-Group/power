@@ -139,19 +139,19 @@ function getData(foldertosave::String,folder::String, model_type::String)
 
                             constraint_p_to = dc ? "-" : value(powerto[t_idx])
                             constraint_q_to = dc ? "-" : value(reactanceto[t_idx])
-
-                            p_to = p[t,t_idx]
-                            q_to = q[t,t_idx]
-                            p_fr = p[t,f_idx]
-                            q_fr = q[t,f_idx]
-
-                            if dc == true
-                                open(csvfilename, "a") do io
-                                    write(io, "$status,$f_bus,$t_bus,$vm_from,$vm_to,$va_from,$va_to,$cost,$constraint_p_fr,$p_fr\n")
-                                end
-                            else
-                                open(csvfilename, "a") do io
-                                    write(io, "$status,$f_bus,$t_bus,$vm_from,$vm_to,$va_from,$va_to,$cost,$constraint_p_fr,$p_fr,$constraint_q_fr,$q_fr,$constraint_p_to,$p_to,$constraint_q_to,$q_to\n")
+                            if t_idx != (0,0,0)
+                                p_to = p[t,t_idx]
+                                q_to = dc ? "" : q[t,t_idx]
+                                p_fr = p[t,f_idx]
+                                q_fr = dc ? "" : q[t,f_idx]
+                                if dc == true
+                                    open(csvfilename, "a") do io
+                                        write(io, "$status,$f_bus,$t_bus,$vm_from,$vm_to,$va_from,$va_to,$cost,$constraint_p_fr,$p_fr\n")
+                                    end
+                                else
+                                    open(csvfilename, "a") do io
+                                        write(io, "$status,$f_bus,$t_bus,$vm_from,$vm_to,$va_from,$va_to,$cost,$constraint_p_fr,$p_fr,$constraint_q_fr,$q_fr,$constraint_p_to,$p_to,$constraint_q_to,$q_to\n")
+                                    end
                                 end
                             end
                         end
@@ -229,6 +229,7 @@ function runGen()
     getData(foldertosave, folder, "AC")
     
     run(`powerenv/bin/python3 src/getCoefficients.py`)
+    run(`powerenv/bin/python3 src/linearizeterms.py`)
     #run coefficients calculator for case specific
     #run(`powerenv/bin/python3 src/updateCoefficients.py`)
 

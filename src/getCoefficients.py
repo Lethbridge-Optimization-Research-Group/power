@@ -29,7 +29,8 @@ for file_path in folder_path.iterdir():
         # Read the CSV
         df = pd.read_csv(file_path)
         # process df here
-        df = df[~df.apply(lambda row: row.astype(str).str.contains("Infeasible").any(), axis=1)]
+        # df = df[~df.apply(lambda row: row.astype(str).str.contains("Infeasible").any(), axis=1)]
+        df = df[df["Status"] != "Infeasible"]
 
         # create id
         # Ensure Bus_to is integer

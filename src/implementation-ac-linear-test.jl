@@ -98,12 +98,24 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::L
         end
 
 		# active ( p ) and reactive ( q ) power constraints
-
+        df_trig=CSV.read("Cases/test/data/trigcoef/$case_name.csv",DataFrame)
         df_branch = CSV.read("Cases/test/data/branch_specific/scenario_results_$case_name.csv", DataFrame)  # assumes header exists
+     
+        A  = df_trig[df_trig.part .== "cos", :theta_from][1]
+        B  = df_trig[df_trig.part .== "cos", :theta_to][1]
+        C  = df_trig[df_trig.part .== "cos", :intercept][1]
+        
+        A2 = df_trig[df_trig.part .== "sin", :theta_from][1]
+        B2 = df_trig[df_trig.part .== "sin", :theta_to][1]
+        C2 = df_trig[df_trig.part .== "sin", :intercept][1]
+        
+        
         for (i, branch) in ref[:branch]
             f_idx = (i, branch["f_bus"], branch["t_bus"])
             t_idx = (i, branch["t_bus"], branch["f_bus"])
             idx = string(Int(branch["f_bus"]), "_",  Int(branch["t_bus"]))
+            # if case specific then use idx = 0
+            
             id = findfirst(==(idx), df_branch.line_id)
             #open("Cases/output.csv", "a") do io
             #    write(io, "$case")
@@ -130,13 +142,20 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::L
             b_to = branch["b_to"]
 
 
-            powerfrom[f_idx]  = @constraint(model,p_fr ==  (g+g_fr)/ttm*vm_fr^2 + (-g*tr+b*ti)/ttm*(df_branch[id, :y_cos_f_w1_vm_from]*vm_fr^2+df_branch[id, :y_cos_f_w2_vm_to]*vm_to^2+df_branch[id, :y_cos_f_w3_theta_i]*va_fr+df_branch[id, :y_cos_f_w4_theta_j]*va_to+df_branch[id, :y_cos_f_bias]) + (-b*tr-g*ti)/ttm*(df_branch[id,  :y_sin_f_w1_vm_from]*vm_fr^2+df_branch[id,  :y_sin_f_w2_vm_to]*vm_to^2+df_branch[id,  :y_sin_f_w3_theta_i]*va_fr+df_branch[id,  :y_sin_f_w4_theta_j]*va_to+df_branch[id,  :y_sin_f_bias]) )
-            reactancefrom[f_idx] = @constraint(model, q_fr == -(b+b_fr)/ttm*vm_fr^2 - (-b*tr-g*ti)/ttm*(df_branch[id, :y_cos_f_w1_vm_from]*vm_fr^2+df_branch[id, :y_cos_f_w2_vm_to]*vm_to^2+df_branch[id, :y_cos_f_w3_theta_i]*va_fr+df_branch[id, :y_cos_f_w4_theta_j]*va_to+df_branch[id, :y_cos_f_bias]) + (-b*tr-g*ti)/ttm*(df_branch[id,  :y_sin_f_w1_vm_from]*vm_fr^2+df_branch[id,  :y_sin_f_w2_vm_to]*vm_to^2+df_branch[id,  :y_sin_f_w3_theta_i]*va_fr+df_branch[id,  :y_sin_f_w4_theta_j]*va_to+df_branch[id,  :y_sin_f_bias]))
+            # powerfrom[f_idx]  = @constraint(model,p_fr ==  (g+g_fr)/ttm*vm_fr^2 + (-g*tr+b*ti)/ttm*(df_branch[id, :y_cos_f_w1_vm_from]*vm_fr^2+df_branch[id, :y_cos_f_w2_vm_to]*vm_to^2+df_branch[id, :y_cos_f_w3_theta_i]*va_fr+df_branch[id, :y_cos_f_w4_theta_j]*va_to+df_branch[id, :y_cos_f_bias]) + (-b*tr-g*ti)/ttm*(df_branch[id,  :y_sin_f_w1_vm_from]*vm_fr^2+df_branch[id,  :y_sin_f_w2_vm_to]*vm_to^2+df_branch[id,  :y_sin_f_w3_theta_i]*va_fr+df_branch[id,  :y_sin_f_w4_theta_j]*va_to+df_branch[id,  :y_sin_f_bias]) )
+            # reactancefrom[f_idx] = @constraint(model, q_fr == -(b+b_fr)/ttm*vm_fr^2 - (-b*tr-g*ti)/ttm*(df_branch[id, :y_cos_f_w1_vm_from]*vm_fr^2+df_branch[id, :y_cos_f_w2_vm_to]*vm_to^2+df_branch[id, :y_cos_f_w3_theta_i]*va_fr+df_branch[id, :y_cos_f_w4_theta_j]*va_to+df_branch[id, :y_cos_f_bias]) + (-b*tr-g*ti)/ttm*(df_branch[id,  :y_sin_f_w1_vm_from]*vm_fr^2+df_branch[id,  :y_sin_f_w2_vm_to]*vm_to^2+df_branch[id,  :y_sin_f_w3_theta_i]*va_fr+df_branch[id,  :y_sin_f_w4_theta_j]*va_to+df_branch[id,  :y_sin_f_bias]))
         
-            # To side of the branch flow
-            powerto[t_idx] = @constraint(model, p_to ==  (g+g_to)*vm_to^2 + (-g*tr-b*ti)/ttm*(df_branch[id, :y_cos_f_w1_vm_from]*vm_fr^2+df_branch[id, :y_cos_f_w2_vm_to]*vm_to^2+df_branch[id, :y_cos_f_w3_theta_i]*va_fr+df_branch[id, :y_cos_f_w4_theta_j]*va_to+df_branch[id, :y_cos_f_bias]) + (-b*tr+g*ti)/ttm*(-df_branch[id,  :y_sin_f_w1_vm_from]*vm_fr^2-df_branch[id,  :y_sin_f_w2_vm_to]*vm_to^2-df_branch[id,  :y_sin_f_w3_theta_i]*va_fr-df_branch[id,  :y_sin_f_w4_theta_j]*va_to-df_branch[id,  :y_sin_f_bias]))
-            reactanceto[t_idx] = @constraint(model, q_to == -(b+b_to)*vm_to^2 - (-b*tr+g*ti)/ttm*(df_branch[id, :y_cos_f_w1_vm_from]*vm_fr^2+df_branch[id, :y_cos_f_w2_vm_to]*vm_to^2+df_branch[id, :y_cos_f_w3_theta_i]*va_fr+df_branch[id, :y_cos_f_w4_theta_j]*va_to+df_branch[id, :y_cos_f_bias]) + (-g*tr-b*ti)/ttm*(-df_branch[id,  :y_sin_f_w1_vm_from]*vm_fr^2-df_branch[id,  :y_sin_f_w2_vm_to]*vm_to^2-df_branch[id,  :y_sin_f_w3_theta_i]*va_fr-df_branch[id,  :y_sin_f_w4_theta_j]*va_to-df_branch[id,  :y_sin_f_bias]))
-                
+            # # To side of the branch flow
+            # powerto[t_idx] = @constraint(model, p_to ==  (g+g_to)*vm_to^2 + (-g*tr-b*ti)/ttm*(df_branch[id, :y_cos_f_w1_vm_from]*vm_fr^2+df_branch[id, :y_cos_f_w2_vm_to]*vm_to^2+df_branch[id, :y_cos_f_w3_theta_i]*va_fr+df_branch[id, :y_cos_f_w4_theta_j]*va_to+df_branch[id, :y_cos_f_bias]) + (-b*tr+g*ti)/ttm*(-df_branch[id,  :y_sin_f_w1_vm_from]*vm_fr^2-df_branch[id,  :y_sin_f_w2_vm_to]*vm_to^2-df_branch[id,  :y_sin_f_w3_theta_i]*va_fr-df_branch[id,  :y_sin_f_w4_theta_j]*va_to-df_branch[id,  :y_sin_f_bias]))
+            # reactanceto[t_idx] = @constraint(model, q_to == -(b+b_to)*vm_to^2 - (-b*tr+g*ti)/ttm*(df_branch[id, :y_cos_f_w1_vm_from]*vm_fr^2+df_branch[id, :y_cos_f_w2_vm_to]*vm_to^2+df_branch[id, :y_cos_f_w3_theta_i]*va_fr+df_branch[id, :y_cos_f_w4_theta_j]*va_to+df_branch[id, :y_cos_f_bias]) + (-g*tr-b*ti)/ttm*(-df_branch[id,  :y_sin_f_w1_vm_from]*vm_fr^2-df_branch[id,  :y_sin_f_w2_vm_to]*vm_to^2-df_branch[id,  :y_sin_f_w3_theta_i]*va_fr-df_branch[id,  :y_sin_f_w4_theta_j]*va_to-df_branch[id,  :y_sin_f_bias]))
+            
+
+            powerfrom[f_idx] = @constraint(model,  p_fr ==  (g+g_fr)/ttm*vm_fr^2 + (-g*tr+b*ti)/ttm*(vm_fr*vm_to*( A*va_fr + B*va_to + C )) + (-b*tr-g*ti)/ttm*(vm_fr*vm_to*( A2*va_fr + B2*va_to + C2 )) )
+            reactancefrom[f_idx] = @constraint(model, q_fr == -(b+b_fr)/ttm*vm_fr^2 - (-b*tr-g*ti)/ttm*(vm_fr*vm_to*( A*va_fr + B*va_to + C )) + (-g*tr+b*ti)/ttm*(vm_fr*vm_to*( A2*va_fr + B2*va_to + C2 )) )
+
+            powerto[t_idx] = @constraint(model, p_to ==  (g+g_to)*vm_to^2 + (-g*tr-b*ti)/ttm*(vm_to*vm_fr*( A*va_fr + B*va_to + C )) + (-b*tr+g*ti)/ttm*(vm_to*vm_fr*( -A2*va_fr - B2*va_to -C2 )) )
+            reactanceto[t_idx] = @constraint(model, q_to == -(b+b_to)*vm_to^2 - (-b*tr+g*ti)/ttm*(vm_to*vm_fr*( A*va_fr + B*va_to + C )) + (-g*tr-b*ti)/ttm*(vm_to*vm_fr*( -A2*va_fr - B2*va_to -C2 )) )
+
             @constraint(model, va_fr - va_to <= branch["angmax"])
             @constraint(model, va_fr - va_to >= branch["angmin"])
 
