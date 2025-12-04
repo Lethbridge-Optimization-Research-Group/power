@@ -27,12 +27,14 @@ Access with info[:parameter]
 :ramping_cost
 """
 
-function DC_graph_search(data, factory, demands, ramping_data, time_periods)
+function DC_graph_search(data, factory, demands, ramping_data, time_periods, start_time)
     
     iteration = 1
     max_iterations = 500
     
+
     start_time = time()
+    time_vec = []
 
     search_parameters = Dict(
         :iteration => iteration,
@@ -178,6 +180,9 @@ function DC_graph_search(data, factory, demands, ramping_data, time_periods)
         push!(search_parameters[:cost_history], best_cost)
         iteration += 1
 
+        iter_time = time()
+        time_elapsed = iter_time - start_time
+        push!(time_vec, time_elapsed)
         if iteration > 10
             recent_costs = search_parameters[:cost_history][iteration - 10:iteration-1]
             improvement = best_cost / maximum(recent_costs)#maximum(recent_costs) - best_cost
@@ -199,7 +204,8 @@ function DC_graph_search(data, factory, demands, ramping_data, time_periods)
         :violations => violations,
         :generation_cost => generation_cost,
         :ramping_cost => ramping_cost,
-        :time => time() - start_time
+        :time => time() - start_time,
+        :time_vec => time_vec
     )
 
     return info
@@ -488,10 +494,9 @@ function generate_new_scenarios_subset(current_outputs, search_parameters, time_
     up_probability=0.3)
     
     time_periods = length(search_parameters[:total_generation])
-    #Random.seed!(42 + search_parameters[:iteration])
-    core_generators = 0.2
-    auxiliary_generators = 0.1
-
+    Random.seed!(42 + search_parameters[:iteration])
+    core_generators = 0.0
+    auxiliary_generators = 0.3
 
     all_generators = collect(keys(current_outputs))
     n_generators = length(all_generators)
@@ -510,7 +515,7 @@ function generate_new_scenarios_subset(current_outputs, search_parameters, time_
         new_scenario = copy(current_outputs)
         auxiliary_generators_to_modify = rand(all_generators, n_to_modify_auxiliary) #TODO
 
-        variation_percent = delta(scenario_idx, search_parameters, 1, time_period)
+        variation_percent = delta(scenario_idx, search_parameters, 2, time_period)
         
 
         # Modify each selected generator

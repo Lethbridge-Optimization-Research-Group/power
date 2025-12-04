@@ -3,10 +3,11 @@ using PowerModels
 using MPOPF
 using Statistics, Plots, GraphRecipes
 
+include("rampingCSVimplementation_AC.jl")
 #include("graph_search.jl")
 include("graph_search_ac.jl")
 #include("rampingCSVimplementation.jl")
-include("rampingCSVimplementation_AC.jl")
+
 
 include("aggregate_demand_data.jl")
 
@@ -51,6 +52,8 @@ hourly_demand_multipliers = get_date_percentages("./Attachments/PUB_Demand_2025.
     
     #ramping_csv_file = generate_daily_demand_csv(data, output_dir)
     ramping_csv_file = generate_ac_vector_demand_csv(data, output_dir, hourly_demand_multipliers)
+    println(ramping_csv_file)
+
     #ramping_data, demands = parse_power_system_csv(ramping_csv_file, matpower_file_path)
     ramping_data, active_demands, reactive_demands = parse_ac_power_system_csv(ramping_csv_file, matpower_file_path)
 
@@ -64,7 +67,7 @@ hourly_demand_multipliers = get_date_percentages("./Attachments/PUB_Demand_2025.
     #println(opt_stop - opt_start, " seconds")
 
     search_start = time()
-    #global info = DC_graph_search(data, search_factory, demands, ramping_data, t)
+    #global info = DC_graph_search(data, search_factory, demands, ramping_data, t, search_start)
     global info = ac_graph_search(data, search_factory, active_demands, reactive_demands, ramping_data, t)
     search_stop = time()
     println()
@@ -85,8 +88,15 @@ hourly_demand_multipliers = get_date_percentages("./Attachments/PUB_Demand_2025.
     #graph_demands_and_generation(demands, search_model, info[:solution])
     #output_run_data_to_csv(data, matpower_file_path, demands, search_model, info)
 #end
-plot(info[:cost_history])
-
+#=
+for x in info[:cost_history]
+    println(x, ',')
+end
+println()
+for x in info[:time_vec]
+    println(x, ',')
+end
+=#
 #=
 percent_decrease = costs ./ costs[1] .* 100
 plot(percent_decrease,
@@ -222,7 +232,7 @@ end
 =#
 =# 
 
-
+#=
 loads = data["load"]
 
 bus_loads = Dict{Int, Dict{Symbol, Float64}}()
@@ -246,6 +256,7 @@ plot(#=buses,=# (pds,qds); label="Pd", lw=0, marker=:circle, markersize=1, color
 xlabel!("Bus")
 ylabel!("Load (p.u.)")
 title!("$matpower_file_path")
+=#
 #=
 data2023 = parse_csv_data("./Attachments/PUB_Demand_2023.csv")
 data2024 = parse_csv_data("./Attachments/PUB_Demand_2024.csv")

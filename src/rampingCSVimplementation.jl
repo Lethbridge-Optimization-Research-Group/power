@@ -70,7 +70,7 @@ end
 
 function generate_power_system_csv(data::Dict, output_dir::String, num_periods::Int=24)
     
-    Random.seed!()
+    Random.seed!(42)
     
     # Extract case name
     case_name = basename(data["name"])
@@ -95,8 +95,8 @@ function generate_power_system_csv(data::Dict, output_dir::String, num_periods::
 
         push!(gen_data, (
             gen["index"],
-            round(ramp_limit, digits=2),
-            round(ramp_cost, digits=2)
+            ramp_limit,
+            ramp_cost
         ))
     end
     sort!(gen_data, by=x -> x[1])
@@ -119,7 +119,8 @@ function generate_power_system_csv(data::Dict, output_dir::String, num_periods::
         demand_dict[bus_id] = get(demand_dict, bus_id, 0.0) + pd
         total_initial_demand += pd
     end
-
+    println(demand_dict)
+    sleep(10)
     # Safety margin (95% of total capacity)
     max_allowable_demand = total_generation_capacity * 0.95
 
@@ -135,11 +136,11 @@ function generate_power_system_csv(data::Dict, output_dir::String, num_periods::
     initial_demand = [get(demand_dict, bus_id, 0.0) for bus_id in bus_ids]
 
     # Generate random variations for additional time periods
-    Random.seed!()  # Input a seed if you like for reproducibility
+    Random.seed!(42)  # Input a seed if you like for reproducibility
     demands = [initial_demand]
 
     for _ in 2:num_periods
-        variation = 0#rand(length(bus_ids)) * 0.2 .- 0.1  ### RAMP VARIATION ### 
+        variation = rand(length(bus_ids)) * 0.2 .- 0.1  ### RAMP VARIATION ### 
         new_demand = initial_demand .* (1 .+ variation)
         new_demand = max.(new_demand, 0)  # Ensure non-negative demands
 
@@ -201,7 +202,7 @@ function generate_daily_demand_profile(base_demand::Float64, hour::Int)
     - Evening decline: 8 PM-midnight (1.0-0.6x base)
     """
     
-    Random.seed!()
+    Random.seed!(42)
 
     hourly_demand_multipliers = [
         0.7774898823226734,  # Hour 1 (Midnight-1 AM)
@@ -305,7 +306,7 @@ function generate_daily_demand_csv(data::Dict, output_dir::String, num_periods::
     base_demand_per_bus = [get(demand_dict, bus_id, 0.0) for bus_id in bus_ids]
 
     # Generate realistic daily demand pattern for each time period
-    Random.seed!()  # For reproducibility - change or remove for random patterns
+    Random.seed!(42)  # For reproducibility - change or remove for random patterns
     demands = []
 
     for hour in 1:num_periods

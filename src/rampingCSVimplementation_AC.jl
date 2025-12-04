@@ -209,8 +209,8 @@ function generate_ac_vector_demand_csv(data::Dict, output_dir::String, hourly_de
 
         push!(gen_data, (
             gen["index"],
-            round(ramp_limit, digits=2),
-            round(ramp_cost, digits=2)
+            ramp_limit,
+            ramp_cost
         ))
     end
     sort!(gen_data, by=x -> x[1])
@@ -317,8 +317,8 @@ function generate_ac_vector_demand_csv(data::Dict, output_dir::String, hourly_de
     for (idx, bus_id) in enumerate(bus_ids)
         print(csv_content, bus_id)
         for period in 1:num_periods
-            active_val = round(active_demands[period][idx], digits=4)
-            reactive_val = round(reactive_demands[period][idx], digits=4)
+            active_val = active_demands[period][idx]
+            reactive_val = reactive_demands[period][idx]
             print(csv_content, ",$active_val,$reactive_val")
         end
         println(csv_content)

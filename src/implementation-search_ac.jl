@@ -73,14 +73,14 @@ function set_model_constraints!(power_flow_model::AbstractMPOPFModel, factory::A
             reactive_bus_demand = get(reactive_demands[t], i, 0.0)
 
             @constraint(model,
-                sum(p[t,a] for a in ref[:bus_arcs][i]) ==
+                sum(p[t,a] for a in ref[:bus_arcs][i]) <=
                 sum(pg[t, g] for g in ref[:bus_gens][i]) -
                 active_bus_demand -
                 sum(shunt["gs"] for shunt in bus_shunts)*vm[t,i]^2
             )
 
             @constraint(model,
-                sum(q[t,a] for a in ref[:bus_arcs][i]) ==
+                sum(q[t,a] for a in ref[:bus_arcs][i]) <=
                 sum(qg[t, g] for g in ref[:bus_gens][i]) -
                 reactive_bus_demand +
                 sum(shunt["bs"] for shunt in bus_shunts)*vm[t,i]^2

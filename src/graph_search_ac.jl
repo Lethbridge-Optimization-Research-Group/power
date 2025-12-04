@@ -1,4 +1,10 @@
 using Graphs, MetaGraphs, Gurobi, JuMP
+#=
+- uncomment reactive fixing constraint
+- fix/ignore reactive ramping limits
+- reintroduce checking ramp limits before adding edges
+- double check logic for additional reactive demand scenarios
+=#
 
 """
     ac_graph_search(data, factory, active_demands, reactive_demands, ramping_data, time_periods)
@@ -526,6 +532,7 @@ function generate_new_scenarios_subset_ac(current_active, current_reactive, sear
             push!(random_scenarios, (new_active, new_reactive))
         end
     end
+    println(random_scenarios[1])
     
     return random_scenarios
 end
@@ -774,7 +781,7 @@ function add_weighted_edges_ac!(graph, time_periods, ramping_data)
                     end
                 end
                 
-                # Check ramping constraints for reactive power (if applicable)
+                #= Check ramping constraints for reactive power (if applicable)
                 if !violates && haskey(ramping_data, "reactive_ramp_limits")
                     reactive_ramp_limits = ramping_data["reactive_ramp_limits"]
                     reactive_ramp_costs = get(ramping_data, "reactive_ramp_costs", ramp_costs)
@@ -789,7 +796,7 @@ function add_weighted_edges_ac!(graph, time_periods, ramping_data)
                             break
                         end
                     end
-                end
+                end=#
                 
                 if !violates
                     add_edge!(graph, node_n, node_n1)
@@ -798,6 +805,16 @@ function add_weighted_edges_ac!(graph, time_periods, ramping_data)
                 end
             end
         end
+        edge_count = 0
+        for node_n in nodes_n
+            for node_n1 in nodes_n1
+                if has_edge(graph, node_n, node_n1)
+                    edge_count += 1
+                end
+            end
+        end
+        println("Created $edge_count edges from period $n to $(n+1)\n")
+      
     end
 end
 
