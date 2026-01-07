@@ -1,5 +1,12 @@
 using Graphs, MetaGraphs, Gurobi, JuMP
 #=
+- return actual models used in final solution
+    - compare P, Q, V, theta from opt. model and solved model (plot)
+- trial run with Qd staying the same across time periods
+- double check how -Qd is handled
+=#
+
+#=
 - uncomment reactive fixing constraint
 - fix/ignore reactive ramping limits
 - reintroduce checking ramp limits before adding edges
@@ -7,7 +14,7 @@ using Graphs, MetaGraphs, Gurobi, JuMP
 =#
 
 """
-    ac_graph_search(data, factory, active_demands, reactive_demands, ramping_data, time_periods)
+    AC_graph_search(data, factory, active_demands, reactive_demands, ramping_data, time_periods)
 
 Create an AC graph model that iteratively adjusts generator values 
 in order to form a solution.
@@ -34,7 +41,7 @@ Access with info[:parameter]
 :ramping_cost
 """
 
-function ac_graph_search(data, factory, active_demands, reactive_demands, ramping_data, time_periods)
+function AC_graph_search(data, factory, active_demands, reactive_demands, ramping_data, time_periods)
     
     iteration = 1
     max_iterations = 500
@@ -62,8 +69,8 @@ function ac_graph_search(data, factory, active_demands, reactive_demands, rampin
     )
 
     # Find peak demand period considering both active and reactive power
-    highest_demand = find_largest_time_period_ac(time_periods, active_demands, reactive_demands)
-    largest_model = build_and_optimize_largest_period_ac(factory, active_demands[highest_demand], 
+    highest_demand = find_largest_time_period_AC(time_periods, active_demands, reactive_demands)
+    largest_model = build_and_optimize_largest_period_AC(factory, active_demands[highest_demand], 
                                                         reactive_demands[highest_demand], ramping_data)
     status = termination_status(largest_model.model)
     println("Peak period optimization status: $status")
@@ -90,10 +97,10 @@ function ac_graph_search(data, factory, active_demands, reactive_demands, rampin
     search_parameters[:total_reactive_generation] = fill(baseline_total_reactive, time_periods)
 
     # Generate initial scenarios with both P and Q
-    initial_scenarios_raw = generate_new_scenarios_subset_ac(baseline_active_values, baseline_reactive_values,
+    initial_scenarios_raw = generate_new_scenarios_subset_AC(data, baseline_active_values, baseline_reactive_values,
                                                            search_parameters, 1)
 
-    scenarios, scenario_violations = test_scenarios_ac(data, factory, active_demands[highest_demand], 
+    scenarios, scenario_violations = test_scenarios_AC(data, factory, active_demands[highest_demand], 
                                                       reactive_demands[highest_demand], ramping_data, 
                                                       initial_scenarios_raw)
     
@@ -102,20 +109,20 @@ function ac_graph_search(data, factory, active_demands, reactive_demands, rampin
         violations[key] += value
     end
 
-    graph = build_initial_graph_ac(scenarios, time_periods)
-    add_weighted_edges_ac!(graph, time_periods, ramping_data)
+    graph = build_initial_graph_AC(scenarios, time_periods)
+    add_weighted_edges_AC!(graph, time_periods, ramping_data)
 
     feasibility = false
     path = nothing
     
     while !feasibility
-        path = shortest_path_ac(graph, time_periods)
+        path = shortest_path_AC(graph, time_periods)
 
         if path == false || path === nothing
             error("No feasible path found in the graph. The problem may be infeasible.")
         end
 
-        infeasible_nodes = test_feasibility_ac(factory, path, graph, active_demands, reactive_demands, ramping_data)
+        infeasible_nodes = test_feasibility_AC(factory, path, graph, active_demands, reactive_demands, ramping_data)
         violations[:infeasible_model] += length(infeasible_nodes)
 
         if isempty(infeasible_nodes) 
@@ -125,16 +132,16 @@ function ac_graph_search(data, factory, active_demands, reactive_demands, rampin
             for node in sort(infeasible_nodes, rev=true)
                 rem_vertex!(graph, node)
             end
-            add_weighted_edges_ac!(graph, time_periods, ramping_data)
+            add_weighted_edges_AC!(graph, time_periods, ramping_data)
         end
     end
 
-    path_results = calculate_path_cost_ac(path, graph)
+    path_results = calculate_path_cost_AC(path, graph)
     
     best_graph = graph
     best_path = path
     best_cost = path_results[:total_cost]
-    best_solution = extract_solution_ac(best_graph, best_path)
+    best_solution = extract_solution_AC(best_graph, best_path)
     
     # Update search parameters
     push!(search_parameters[:cost_history], best_cost)
@@ -170,10 +177,10 @@ function ac_graph_search(data, factory, active_demands, reactive_demands, rampin
 
         # Generate new scenarios for each time period
         for i in 1:time_periods
-            scenarios_for_period = generate_new_scenarios_subset_ac(current_active_values[i], 
+            scenarios_for_period = generate_new_scenarios_subset_AC(data, current_active_values[i], 
                                                                    current_reactive_values[i],
                                                                    search_parameters, i)
-            tested_scenarios, scenario_violations = test_scenarios_ac(data, factory, 
+            tested_scenarios, scenario_violations = test_scenarios_AC(data, factory, 
                                                                      active_demands[i], 
                                                                      reactive_demands[i],
                                                                      ramping_data, 
@@ -187,19 +194,19 @@ function ac_graph_search(data, factory, active_demands, reactive_demands, rampin
             new_scenarios[i] = tested_scenarios
         end
 
-        new_graph = build_new_graph_ac(new_scenarios, time_periods)
-        add_weighted_edges_ac!(new_graph, time_periods, ramping_data)
+        new_graph = build_new_graph_AC(new_scenarios, time_periods)
+        add_weighted_edges_AC!(new_graph, time_periods, ramping_data)
 
         feasibility = false
 
         while !feasibility
-            path = shortest_path_ac(new_graph, time_periods)
+            path = shortest_path_AC(new_graph, time_periods)
 
             if path == false || path === nothing
                 error("No feasible path found in the graph. The problem may be infeasible.")
             end
 
-            infeasible_nodes = test_feasibility_ac(factory, path, new_graph, active_demands, 
+            infeasible_nodes = test_feasibility_AC(factory, path, new_graph, active_demands, 
                                                   reactive_demands, ramping_data)
             violations[:infeasible_model] += length(infeasible_nodes)
 
@@ -212,13 +219,13 @@ function ac_graph_search(data, factory, active_demands, reactive_demands, rampin
             end
         end
         
-        path_results = calculate_path_cost_ac(path, new_graph)
+        path_results = calculate_path_cost_AC(path, new_graph)
 
         if path_results[:total_cost] < best_cost
             best_graph = new_graph
             best_cost = path_results[:total_cost]
             best_path = path
-            best_solution = extract_solution_ac(best_graph, best_path)
+            best_solution = extract_solution_AC(best_graph, best_path)
             generation_cost = path_results[:generation_cost]
             ramping_cost = path_results[:ramping_cost]
         end
@@ -270,7 +277,7 @@ Validate and cost each proposed AC generator scenario.
 - `Vector{Tuple{Dict{Int64, Float64}, Dict{Int64, Float64}, Float64}}` : Valid scenarios with P, Q, and costs
 - `Dict{Symbol, Int}` : Violation counts
 """
-function test_scenarios_ac(data, factory, active_demand, reactive_demand, ramping_data, random_scenarios)
+function test_scenarios_AC(data, factory, active_demand, reactive_demand, ramping_data, random_scenarios)
     violations = Dict(
         :min_active_demand_not_met => 0,
         :min_reactive_demand_not_met => 0,
@@ -369,7 +376,7 @@ end
 
 Generate new AC scenarios by varying both active and reactive power outputs.
 """
-function generate_new_scenarios_subset_ac(current_active, current_reactive, search_parameters, time_period; 
+function generate_new_scenarios_subset_AC(data, current_active, current_reactive, search_parameters, time_period; 
                                          scenarios_to_generate=15,
                                          subset_percentage=0.3, 
                                          variation_percent=0.05,
@@ -394,7 +401,7 @@ function generate_new_scenarios_subset_ac(current_active, current_reactive, sear
         new_reactive = copy(current_reactive)
         auxiliary_generators_to_modify = rand(all_generators, n_to_modify_auxiliary)
 
-        variation_percent = delta_ac(scenario_idx, search_parameters, 1, time_period)
+        variation_percent = delta_AC(scenario_idx, search_parameters, 1, time_period)
         
         # Modify core generators
         for gen_id in core_generators_to_modify
@@ -542,7 +549,7 @@ end
 
 Calculate variation factor for AC scenarios considering both active and reactive power demands.
 """
-function delta_ac(scenario_idx, search_parameters, method_choice, time_period)
+function delta_AC(scenario_idx, search_parameters, method_choice, time_period)
     time_periods = length(search_parameters[:total_active_generation])
     
     if search_parameters[:iteration] < 5
@@ -578,7 +585,7 @@ end
 
 Find the time period with the highest combined active and reactive demand.
 """
-function find_largest_time_period_ac(time_periods, active_demands, reactive_demands)
+function find_largest_time_period_AC(time_periods, active_demands, reactive_demands)
     largest_index = -1
     largest_combined = 0
 
@@ -603,11 +610,11 @@ end
 
 Build and optimize an AC power flow model for the peak demand period.
 """
-function build_and_optimize_largest_period_ac(factory, active_demand, reactive_demand, ramping_data)
+function build_and_optimize_largest_period_AC(factory, active_demand, reactive_demand, ramping_data)
     demands = [active_demand]  # Adjust based on your factory interface
     reactive_demands = [reactive_demand]
     
-    model = create_search_model_ac(factory, 1, ramping_data, demands, reactive_demands)
+    model = create_search_model_AC(factory, 1, ramping_data, demands, reactive_demands)
     optimize!(model.model)
 
     return model
@@ -618,7 +625,7 @@ end
 
 Test the feasibility of each node in a path by solving an AC power flow model.
 """
-function test_feasibility_ac(factory, path, graph, active_demands, reactive_demands, ramping_data)
+function test_feasibility_AC(factory, path, graph, active_demands, reactive_demands, ramping_data)
     infeasible_nodes = []
 
     for node in path[2:end-1]
@@ -626,7 +633,7 @@ function test_feasibility_ac(factory, path, graph, active_demands, reactive_dema
         active_values = get_prop(graph, node, :active_generator_values)
         reactive_values = get_prop(graph, node, :reactive_generator_values)
 
-        model = create_search_model_ac(factory, 1, ramping_data, [active_demands[time_period]], [reactive_demands[time_period]])
+        model = create_search_model_AC(factory, 1, ramping_data, [active_demands[time_period]], [reactive_demands[time_period]])
 
         # Fix both active and reactive power values
         for (gen_id, p_value) in active_values
@@ -656,7 +663,7 @@ end
 
 Find the shortest path from source to sink in the AC graph.
 """
-function shortest_path_ac(graph, time_periods)
+function shortest_path_AC(graph, time_periods)
     working_graph = deepcopy(graph)
 
     for e in edges(working_graph)
@@ -694,7 +701,7 @@ end
 
 Construct initial AC graph with nodes containing both P and Q values.
 """
-function build_initial_graph_ac(scenarios::Vector{Any}, time_periods)
+function build_initial_graph_AC(scenarios::Vector{Any}, time_periods)
     graph = MetaDiGraph()
     defaultweight!(graph, 1.0)
     
@@ -750,7 +757,7 @@ end
 
 Add edges between adjacent time periods with AC ramping costs.
 """
-function add_weighted_edges_ac!(graph, time_periods, ramping_data)
+function add_weighted_edges_AC!(graph, time_periods, ramping_data)
     ramp_costs = ramping_data["costs"]
     ramp_limits = ramping_data["ramp_limits"]
     
@@ -823,7 +830,7 @@ end
 
 Calculate total cost for AC path including both generation and ramping costs.
 """
-function calculate_path_cost_ac(path, graph)
+function calculate_path_cost_AC(path, graph)
     total_cost = 0.0
     generation_cost = 0.0
     ramping_cost = 0.0
@@ -859,7 +866,7 @@ end
 
 Extract AC solution with both active and reactive power values from path.
 """
-function extract_solution_ac(graph, path)
+function extract_solution_AC(graph, path)
     solution = Dict{Int, Dict{Symbol, Any}}()
 
     for node in path
@@ -879,7 +886,7 @@ end
 
 Construct new AC graph using updated scenarios.
 """
-function build_new_graph_ac(new_scenarios, time_periods)
+function build_new_graph_AC(new_scenarios, time_periods)
     new_graph = MetaDiGraph()
     defaultweight!(new_graph, 1.0)
 
@@ -935,7 +942,7 @@ end
 
 Compare AC cost breakdowns between graph model and full optimization model.
 """
-function get_generation_and_ramping_costs_ac(data, info, model)
+function get_generation_and_ramping_costs_AC(data, info, model)
     graph_model_generation_cost = info[:generation_cost]
     graph_model_ramping_cost = info[:ramping_cost]
     search_model_generation_cost = 0.0
@@ -987,7 +994,7 @@ end
 
 Plot AC demand and generation output comparisons.
 """
-function graph_demands_and_generation_ac(active_demands, reactive_demands, full_model, graph_solution)
+function graph_demands_and_generation_AC(active_demands, reactive_demands, full_model, graph_solution)
     time_periods = length(graph_solution) - 2
     
     # Extract active power outputs
@@ -1047,7 +1054,7 @@ end
 
 Write AC run summary and time-series data to CSV.
 """
-function output_run_data_to_csv_ac(data, file_path, active_demands, reactive_demands, model, info)
+function output_run_data_to_csv_AC(data, file_path, active_demands, reactive_demands, model, info)
     filename = split(file_path, "/") |> last
     time_periods = length(info[:solution]) - 2
     
@@ -1072,7 +1079,7 @@ function output_run_data_to_csv_ac(data, file_path, active_demands, reactive_dem
     reactive_demand_totals = [sum(values(d)) for d in reactive_demands[1:time_periods]]
 
     # Get cost information
-    cost_info = get_generation_and_ramping_costs_ac(data, info, model)
+    cost_info = get_generation_and_ramping_costs_AC(data, info, model)
     
     # Prepare CSV data
     csv_data = []
@@ -1210,7 +1217,7 @@ end
 
 Extract both active and reactive power generator values from AC model.
 """
-function extract_power_flow_data_ac(model)
+function extract_power_flow_data_AC(model)
     pg_values = value.(model.model[:pg])
     qg_values = value.(model.model[:qg])
     

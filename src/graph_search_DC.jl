@@ -27,7 +27,7 @@ Access with info[:parameter]
 :ramping_cost
 """
 
-function DC_graph_search(data, factory, demands, ramping_data, time_periods, start_time)
+function DC_graph_search(data, factory, demands, ramping_data, time_periods)
     
     iteration = 1
     max_iterations = 500
@@ -67,7 +67,7 @@ function DC_graph_search(data, factory, demands, ramping_data, time_periods, sta
     baseline_total_gen = sum(values(baseline_generator_values))
     search_parameters[:total_generation] = fill(baseline_total_gen, time_periods)
 
-    initial_scenarios_raw = generate_new_scenarios_subset(baseline_generator_values, search_parameters, 1)
+    initial_scenarios_raw = generate_new_scenarios_subset(data, baseline_generator_values, search_parameters, 1)
 
     scenarios, scenario_violations = test_scenarios(data, factory, demands[highest_demand], ramping_data, initial_scenarios_raw)
     violations[:min_demand_not_met] += scenario_violations[:min_demand_not_met]
@@ -134,7 +134,7 @@ function DC_graph_search(data, factory, demands, ramping_data, time_periods, sta
         end
 
         for i in 1:time_periods
-            scenarios_for_period = generate_new_scenarios_subset(current_generator_values[i], search_parameters, i)
+            scenarios_for_period = generate_new_scenarios_subset(data, current_generator_values[i], search_parameters, i)
             tested_scenarios, scenario_violations = test_scenarios(data, factory, demands[i], ramping_data, scenarios_for_period)
             violations[:min_demand_not_met] += scenario_violations[:min_demand_not_met]
             violations[:pmin_pmax_out_of_bounds] += scenario_violations[:pmin_pmax_out_of_bounds]
@@ -487,7 +487,7 @@ function build_and_optimize_largest_period(factory, demand, ramping_data)
     return model
 end
 
-function generate_new_scenarios_subset(current_outputs, search_parameters, time_period; 
+function generate_new_scenarios_subset(data, current_outputs, search_parameters, time_period; 
     scenarios_to_generate=15,
     subset_percentage=0.3, 
     variation_percent=0.05,

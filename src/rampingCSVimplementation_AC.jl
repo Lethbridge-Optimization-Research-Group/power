@@ -1,13 +1,5 @@
 using CSV, DataFrames, Random
 
-function safe_parse_float(s::AbstractString)
-    try
-        return parse(Float64, s)
-    catch
-        return missing
-    end
-end
-
 function parse_ac_power_system_csv(file_path::String, matpower_file_path::String)
     csv_content = read(file_path, String)
     lines = split(csv_content, '\n')
@@ -362,7 +354,7 @@ function generate_ac_vector_demand_csv(data::Dict, output_dir::String, hourly_de
 end
 
 # Convenience wrapper
-function generate_power_system_csv_ac(data::Dict, output_dir::String, num_periods::Int=24)
+function generate_power_system_csv_AC(data::Dict, output_dir::String, num_periods::Int=24)
     return generate_ac_vector_demand_csv(data, output_dir, num_periods)
 end
 
