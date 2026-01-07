@@ -146,16 +146,9 @@ module MPOPF
             return new(file_path, optimizer)
         end
     end
-    
-    """
-        DCMPOPFSearchFactory <: AbstractMPOPFModelFactory
-    Factory for creating new search DC MPOPF models.
-    Use when running search functions on model
-    Search models allow power generated > demand
-    # Fields
-    - `file_path::String`: Path to input data file.
-    - `optimizer::Type`: The optimizer to be used.
-    """
+    ```
+        TODO: Document
+    ```
     mutable struct DCMPOPFSearchFactory <: AbstractMPOPFModelFactory
         file_path::String
         optimizer::Type
@@ -233,25 +226,17 @@ module MPOPF
             return new(model, data, scenarios, time_periods, factors, ramping_cost)
         end
     end
-    """
-        MPOPFSearchModel <: AbstractMPOPFModel
-    Represents a Multi-Period Optimal Power Flow model that accepts unique ramping data and demands 
-    for the purpose of running local search algorithms
-    # Fields
-    - `model::JuMP.Model`: The underlying JuMP model.
-    - `data::Dict`: Dictionary containing the power system data.
-    - `time_periods::Int64`: Number of time periods in the model.
-    - `ramping_data::Dict`: Data associated with ramping costs and limits for each generater
-    - `demands::Vector{Vector{Float64}}`: 2D array containing demands for each bus for each time period.
-    """
+    ```
+        TODO: Document
+    ```
     mutable struct MPOPFSearchModel <: AbstractMPOPFModel
         model::JuMP.Model
         data::Dict
         time_periods::Int64
         ramping_data::Dict
-        demands::Vector{Dict{Int64, Float64}}
+        demands::Vector{Vector{Float64}}
 
-        function MPOPFSearchModel(model::JuMP.Model, data::Dict, time_periods::Int64, ramping_data::Dict, demands::Vector{Dict{Int64, Float64}})
+        function MPOPFSearchModel(model::JuMP.Model, data::Dict, time_periods::Int64, ramping_data::Dict, demands::Vector{Vector{Float64}})
             return new(model, data, time_periods, ramping_data, demands)
         end
     end
@@ -404,19 +389,10 @@ module MPOPF
     end
 
 
-    """
-        create_search_model(factory::AbstractMPOPFModelFactory, time_periods::Int64, ramping_data::Dict, demands::Vector{Vector{Float64}})::MPOPFSearchModel
-    Create a Multi-Period OPF model with unique ramping data and demands for the purpose of using local search algorithms
-    when comparing to the AC model.
-    # Arguments
-    - `factory::AbstractMPOPFModelFactory`: The factory used to create the specific type of MPOPF model.
-    - `time_periods::Int64`: Number of time periods with which to build the model
-    - `ramping_data::Dict`: Unique generator ramping values for ramping limits and costs
-    - `demands`: 2D array with demands for each bus for each time period
-    # Returns
-    An `MPOPFModel` object representing the created MPOPF model.
-    """
-    function create_search_model(factory::AbstractMPOPFModelFactory, time_periods::Int64, ramping_data::Dict, demands::Vector{Dict{Int64, Float64}})::MPOPFSearchModel
+    ```
+        TODO: Document
+    ```
+    function create_search_model(factory::AbstractMPOPFModelFactory, time_periods::Int64, ramping_data::Dict, demands::Vector{Vector{Float64}})::MPOPFSearchModel
         data = PowerModels.parse_file(factory.file_path)
         PowerModels.standardize_cost_terms!(data, order=2)
         PowerModels.calc_thermal_limits!(data)
