@@ -1,0 +1,80 @@
+using MPOPF
+using Ipopt
+using JuMP
+using CSV
+using DataFrames
+using PowerModels
+using IOCapture
+const PM = PowerModels
+
+folder = "Cases/test"
+foldertosave = joinpath(folder, "data")
+
+for file in readdir(folder)
+    file_path = joinpath(folder, file)
+    println("Processing file: $file_path")
+    filename = splitext(file)[1]
+    extension = splitext(file)[2]
+    if (extension == ".m")
+        filename = joinpath(foldertosave, filename)
+        csvfilename = "$(filename).csv"
+        open(csvfilename, "w") do io
+            write(io, "Bus_from,Bus_to,volatge_magnitude_from,volatge_magnitude_to,theta_from,theta_to,cos_theta,sin_theta\n")
+        end
+
+        if extension == ".m"
+            for i in 1:100
+                My_AC_model = nothing
+                data = nothing
+                #optimize_model(My_AC_model)
+                output = IOCapture.capture() do
+                    data = PowerModels.parse_file(file_path)
+                    PowerModels.standardize_cost_terms!(data, order=2)
+                    PowerModels.calc_thermal_limits!(data)
+
+                    ac_factory = ACMPOPFModelFactory(file_path, Ipopt.Optimizer)
+                    My_AC_model = create_model(ac_factory)
+                    optimize!(My_AC_model.model)
+                end
+
+                lines = split(output.output, '\n')
+                exit_line = findfirst(startswith("EXIT:"), lines)
+                if exit_line !== nothing && lines[exit_line] == "EXIT: Optimal Solution Found."
+                    println("Found EXIT line: ", lines[exit_line])
+
+                    #---------------------------------------Branch data----------------------------------
+                    x = PowerModels.build_ref(data)[:it][:pm][:nw][0]
+
+                    #value for voltage amplitude
+                    va_val = JuMP.value.(My_AC_model.model[:va])
+                    vm_val = JuMP.value.(My_AC_model.model[:vm])
+
+                    for (i, branch) in x[:branch]
+                        f_bus = branch["f_bus"]
+                        vm_from = vm_val[1, f_bus]
+                        va_from = va_val[1, f_bus]
+
+                        t_bus = branch["t_bus"]
+                        vm_to = vm_val[1, t_bus]
+                        va_to = va_val[1, t_bus]
+
+                        cos_theta = cos(va_from - va_to)
+                        sin_theta = sin(va_from - va_to)
+
+                        #vm_cos_theta = vm_from*vm_to*cos_theta
+                        #vm_sin_theta = vm_from*vm_to*sin_theta
+
+                        open(csvfilename, "a") do io
+                            write(io, "$f_bus,$t_bus,$vm_from,$vm_to,$va_from,$va_to,$cos_theta,$sin_theta\n")
+                        end 
+                    end
+                else
+                    #println("Infeasible")
+                    open(csvfilename, "a") do io
+                        write(io, "Infeasible\n")
+                    end
+                end
+            end
+        end
+    end
+end
